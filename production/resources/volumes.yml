@@ -1,0 +1,8 @@
+resources:
+  volumes:
+    deeds_checkpoints:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.checkpoint_volume}
+      volume_type: MANAGED
+      comment: "Streaming checkpoints for deeds_pipeline (parse + extract stages)."

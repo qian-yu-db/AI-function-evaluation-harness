@@ -1,0 +1,57 @@
+bundle:
+  name: deeds_pipeline
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: "Unity Catalog the pipeline reads/writes."
+  schema:
+    description: "UC schema for deeds_* tables."
+    default: "unstructured_documents"
+  input_volume:
+    description: "UC volume containing source PDFs/TIFFs (assumed to exist)."
+    default: "deeds"
+  checkpoint_volume:
+    description: "UC volume for streaming checkpoints (created by this bundle)."
+    default: "deeds_checkpoints"
+  image_subfolder:
+    description: "Subfolder under the input volume where ai_parse_document writes rendered page images. Required for citation rendering — metadata.pages[].image_uri is null without this."
+    default: "images"
+  low_extract_conf_threshold:
+    description: "Field-level confidence threshold for review flagging."
+    default: "0.7"
+  high_conf_threshold:
+    description: "extract_conf >= this combined with FP/FN classification = high_conf_wrong."
+    default: "0.8"
+  no_citation_gate_conf:
+    description: "field_no_citation only fires when extract_conf < this (avoids false positives on confident inferences without explicit grounding)."
+    default: "0.95"
+  mlflow_experiment:
+    description: "MLflow experiment path for analytics runs."
+  schedule_pause_status:
+    description: "PAUSED for dev (manual runs only), UNPAUSED for prod (cron-driven)."
+    default: "PAUSED"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: DEFAULT
+    variables:
+      catalog: "dev_fins_genai"
+      mlflow_experiment: "/Users/q.yu@databricks.com/deeds_pipeline_dev"
+
+  prod:
+    mode: production
+    workspace:
+      profile: DEFAULT
+      # production mode requires an explicit root_path so deploys are not
+      # implicit per-user; this points to the same shared location every run.
+      root_path: /Workspace/Users/q.yu@databricks.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: "fins_genai"
+      mlflow_experiment: "/Users/q.yu@databricks.com/deeds_pipeline_prod"
+      schedule_pause_status: "UNPAUSED"

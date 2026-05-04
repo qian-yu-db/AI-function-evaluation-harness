@@ -1,0 +1,49 @@
+resources:
+  jobs:
+    deeds_streaming:
+      name: "[${bundle.target}] deeds_streaming"
+      description: "Daily streaming pipeline: parse new documents and extract entities (ai_parse_document → ai_extract v2.1). Trigger.AvailableNow per stage."
+      tasks:
+        - task_key: parse
+          notebook_task:
+            notebook_path: ../src/pipelines/01_stream_parse.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              input_volume: ${var.input_volume}
+              checkpoint_volume: ${var.checkpoint_volume}
+              image_subfolder: ${var.image_subfolder}
+        - task_key: extract
+          depends_on:
+            - task_key: parse
+          notebook_task:
+            notebook_path: ../src/pipelines/02_stream_extract.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              checkpoint_volume: ${var.checkpoint_volume}
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "UTC"
+        pause_status: ${var.schedule_pause_status}
+      max_concurrent_runs: 1
+
+    deeds_analytics:
+      name: "[${bundle.target}] deeds_analytics"
+      description: "Daily batch analytics: corpus outliers + field-level deterministic flags + review queue. No LLM judge."
+      tasks:
+        - task_key: analytics
+          notebook_task:
+            notebook_path: ../src/analytics/01_batch_analytics.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              low_extract_conf_threshold: ${var.low_extract_conf_threshold}
+              high_conf_threshold: ${var.high_conf_threshold}
+              no_citation_gate_conf: ${var.no_citation_gate_conf}
+              mlflow_experiment: ${var.mlflow_experiment}
+      schedule:
+        quartz_cron_expression: "0 0 3 * * ?"
+        timezone_id: "UTC"
+        pause_status: ${var.schedule_pause_status}
+      max_concurrent_runs: 1

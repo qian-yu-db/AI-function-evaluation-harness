@@ -191,8 +191,8 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# Claude Code / AI dev kit (keep .claude/skills/ and .claude/settings.json for project config)
-.claude/settings.local.json
+# Claude Code / AI dev kit — local tooling, not project content
+.claude/
 .ai-dev-kit/
 
 # macOS

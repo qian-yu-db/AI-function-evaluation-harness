@@ -21,12 +21,14 @@ dbutils.widgets.text("schema", "unstructured_documents")
 dbutils.widgets.text("input_volume", "deeds")
 dbutils.widgets.text("checkpoint_volume", "deeds_checkpoints")
 dbutils.widgets.text("image_subfolder", "images")
+dbutils.widgets.text("table_suffix", "_dab")
 
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
 INPUT_VOLUME = dbutils.widgets.get("input_volume")
 CHECKPOINT_VOLUME = dbutils.widgets.get("checkpoint_volume")
 IMAGE_SUBFOLDER = dbutils.widgets.get("image_subfolder")
+TABLE_SUFFIX = dbutils.widgets.get("table_suffix")
 
 assert CATALOG, "catalog parameter is required"
 
@@ -37,7 +39,7 @@ CHECKPOINT_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{CHECKPOINT_VOLUME}/01_parse"
 # in the parsed VARIANT points back at these so the review UI can overlay
 # citation bboxes on the source page.
 IMAGE_OUTPUT_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{INPUT_VOLUME}/{IMAGE_SUBFOLDER}/"
-OUTPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_parsed"
+OUTPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_parsed{TABLE_SUFFIX}"
 
 print(f"Reading from:    {VOLUME_PATH}")
 print(f"Checkpoint at:   {CHECKPOINT_PATH}")
@@ -55,8 +57,18 @@ print(f"Writing to:      {OUTPUT_TABLE}")
 
 # COMMAND ----------
 
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType, LongType, BinaryType
+
+binary_file_schema = StructType([
+    StructField("path", StringType()),
+    StructField("modificationTime", TimestampType()),
+    StructField("length", LongType()),
+    StructField("content", BinaryType()),
+])
+
 files_df = (
     spark.readStream.format("binaryFile")
+    .schema(binary_file_schema)
     .option("pathGlobFilter", "*.{pdf,PDF,tif,TIF,tiff,TIFF,jpg,jpeg,png}")
     .option("recursiveFileLookup", "true")
     .load(VOLUME_PATH)

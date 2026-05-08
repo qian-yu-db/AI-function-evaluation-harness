@@ -167,7 +167,7 @@ elements_raw = (
         "path",
         "image_name",
         "element_idx",
-        "try_cast(element:page_id AS INT) AS page_id",
+        "try_cast(element:bbox[0]:page_id AS INT) AS page_id",
         "try_cast(element:type AS STRING) AS type",
         "try_cast(element:content AS STRING) AS content",
         "try_cast(element:confidence AS DOUBLE) AS confidence",
@@ -279,94 +279,6 @@ display(
         """
     )
 )
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Distribution plot — element confidence per document
-# MAGIC
-# MAGIC One row per document, showing:
-# MAGIC - **Violin** — the actual shape of the confidence distribution (a thin tail toward 0
-# MAGIC   means a few bad elements; a wide bulge means uniformly mediocre OCR).
-# MAGIC - **Box overlay** — median + IQR, the same numbers the per-doc tier uses.
-# MAGIC - **Individual element dots** — every element, jittered, so a long tail isn't hidden.
-# MAGIC - **Vertical threshold lines** — `abs_floor` (red) and `corpus_p10` (orange). Anything
-# MAGIC   left of either line is part of the `low` tier. The `borderline` tier is a doc-internal
-# MAGIC   signal so it doesn't have a single global x-coordinate.
-# MAGIC
-# MAGIC Documents are sorted by median confidence ascending, so the worst sit at the top.
-
-# COMMAND ----------
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-# Pull only confidence + image_name to the driver — small (one row per element, 6 docs)
-plot_pdf = (
-    spark.table("deeds_parsed_elements")
-    .filter(F.col("confidence").isNotNull())
-    .select("image_name", "confidence")
-    .toPandas()
-)
-
-if plot_pdf.empty:
-    print("No non-null confidence values to plot.")
-else:
-    # Sort docs by median confidence — worst on top so the eye lands on them first
-    medians = plot_pdf.groupby("image_name")["confidence"].median().sort_values()
-    docs = list(medians.index)
-    data = [plot_pdf.loc[plot_pdf["image_name"] == d, "confidence"].values for d in docs]
-
-    fig, ax = plt.subplots(figsize=(11, 0.7 * len(docs) + 2))
-
-    # Violin (shape) — set face/edge colors so it doesn't drown out the box overlay
-    parts = ax.violinplot(
-        data, positions=range(len(docs)), vert=False, widths=0.85, showextrema=False
-    )
-    for body in parts["bodies"]:
-        body.set_facecolor("#9ecae1")
-        body.set_edgecolor("#3182bd")
-        body.set_alpha(0.55)
-
-    # Box overlay (median + IQR + whiskers)
-    ax.boxplot(
-        data,
-        positions=range(len(docs)),
-        vert=False,
-        widths=0.25,
-        showmeans=True,
-        meanline=False,
-        flierprops=dict(marker="o", markersize=3, markerfacecolor="#222", alpha=0.6),
-        medianprops=dict(color="#08306b", linewidth=2),
-        meanprops=dict(marker="D", markeredgecolor="#000", markerfacecolor="#fff", markersize=5),
-    )
-
-    # Per-element dots, jittered
-    rng = np.random.default_rng(42)
-    for i, vals in enumerate(data):
-        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
-        ax.scatter(vals, np.full(len(vals), i) + jitter, s=8, alpha=0.45, color="#08306b")
-
-    # Threshold lines
-    ax.axvline(ABS_FLOOR, color="#e6550d", linestyle="--", linewidth=1.4, label=f"abs_floor = {ABS_FLOOR}")
-    if CORPUS_PX is not None:
-        ax.axvline(
-            CORPUS_PX,
-            color="#fdae6b",
-            linestyle="--",
-            linewidth=1.4,
-            label=f"corpus_p{int(CORPUS_PERCENTILE * 100)} = {CORPUS_PX:.3f}",
-        )
-
-    ax.set_yticks(range(len(docs)))
-    ax.set_yticklabels(docs)
-    ax.set_xlabel("element confidence")
-    ax.set_xlim(min(0.0, plot_pdf["confidence"].min() - 0.02), 1.02)
-    ax.set_title("ai_parse_document element confidence per document")
-    ax.grid(axis="x", linestyle=":", alpha=0.4)
-    ax.legend(loc="lower left", fontsize=9)
-    plt.tight_layout()
-    display(fig)
 
 # COMMAND ----------
 
@@ -561,6 +473,171 @@ extracted_flat = extracted_raw.join(doc_stats, "image_name", "left")
 )
 
 display(spark.table("deeds_extracted_flat"))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Distribution plots — parse vs extract confidence per document
+# MAGIC
+# MAGIC Two panels, side by side, **sharing the same doc-axis** so each row reads left-to-right
+# MAGIC for a single document. Documents are sorted by median parse confidence ascending —
+# MAGIC worst sit on top.
+# MAGIC
+# MAGIC **Left — `ai_parse_document` (per-element distribution)**
+# MAGIC - Violin: shape of the per-element confidence distribution (thin tail toward 0 means a
+# MAGIC   few bad elements; wide bulge means uniformly mediocre OCR).
+# MAGIC - Box overlay: median + IQR.
+# MAGIC - Small dark dots: every parsed element, jittered.
+# MAGIC - Vertical thresholds: `abs_floor` (red) and `corpus_p10` (orange) — parse tier classifier reference.
+# MAGIC
+# MAGIC **Right — `ai_extract` v2.1 (6 per-field confidence scores)**
+# MAGIC - One colored marker per field per doc · the legend names the field.
+# MAGIC - Short black bar: median of the 6 fields for that doc.
+# MAGIC - Vertical reference at `0.7` — the threshold notebook 02 will use to flag a non-null
+# MAGIC   field for review.
+
+# COMMAND ----------
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+# Parse-side: per-element confidence
+plot_pdf = (
+    spark.table("deeds_parsed_elements")
+    .filter(F.col("confidence").isNotNull())
+    .select("image_name", "confidence")
+    .toPandas()
+)
+
+# Extract-side: 6 per-field confidence scores per doc
+extract_conf_pdf = (
+    spark.table("deeds_extracted_flat")
+    .select("image_name", *[f"{f}_extract_conf" for f in EXTRACT_FIELDS])
+    .toPandas()
+    .set_index("image_name")
+)
+
+# Distinct, qualitative palette for the 6 fields
+FIELD_COLORS = {
+    "DocumentTitle":    "#d62728",
+    "BookNumberType":   "#ff7f0e",
+    "BookNumberParsed": "#2ca02c",
+    "PageNumber":       "#9467bd",
+    "DocumentNumber":   "#8c564b",
+    "RecordingDate":    "#17becf",
+}
+EXTRACT_REVIEW_THRESHOLD = 0.7  # informational; matches LOW_EXTRACT_CONF_THRESHOLD in notebook 02
+
+if plot_pdf.empty:
+    print("No non-null confidence values to plot.")
+else:
+    # Sort docs by median parse confidence — worst on top so the eye lands on them first
+    medians = plot_pdf.groupby("image_name")["confidence"].median().sort_values()
+    docs = list(medians.index)
+    data = [plot_pdf.loc[plot_pdf["image_name"] == d, "confidence"].values for d in docs]
+
+    fig, (ax_parse, ax_extract) = plt.subplots(
+        1, 2,
+        sharey=True,
+        figsize=(15, 0.7 * len(docs) + 2.5),
+        gridspec_kw={"width_ratios": [1.6, 1.0]},
+    )
+
+    # ---- LEFT panel: ai_parse_document per-element distribution ----
+    parts = ax_parse.violinplot(
+        data, positions=range(len(docs)), vert=False, widths=0.85, showextrema=False
+    )
+    for body in parts["bodies"]:
+        body.set_facecolor("#9ecae1")
+        body.set_edgecolor("#3182bd")
+        body.set_alpha(0.55)
+
+    ax_parse.boxplot(
+        data,
+        positions=range(len(docs)),
+        vert=False,
+        widths=0.25,
+        showmeans=True,
+        meanline=False,
+        flierprops=dict(marker="o", markersize=3, markerfacecolor="#222", alpha=0.6),
+        medianprops=dict(color="#08306b", linewidth=2),
+        meanprops=dict(marker="D", markeredgecolor="#000", markerfacecolor="#fff", markersize=5),
+    )
+
+    rng = np.random.default_rng(42)
+    for i, vals in enumerate(data):
+        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
+        ax_parse.scatter(vals, np.full(len(vals), i) + jitter, s=8, alpha=0.45, color="#08306b")
+
+    ax_parse.axvline(ABS_FLOOR, color="#e6550d", linestyle="--", linewidth=1.4, label=f"abs_floor = {ABS_FLOOR}")
+    if CORPUS_PX is not None:
+        ax_parse.axvline(
+            CORPUS_PX,
+            color="#fdae6b",
+            linestyle="--",
+            linewidth=1.4,
+            label=f"corpus_p{int(CORPUS_PERCENTILE * 100)} = {CORPUS_PX:.3f}",
+        )
+
+    ax_parse.set_yticks(range(len(docs)))
+    ax_parse.set_yticklabels(docs)
+    ax_parse.set_xlabel("element confidence")
+    ax_parse.set_xlim(min(0.0, plot_pdf["confidence"].min() - 0.02), 1.02)
+    ax_parse.set_title("ai_parse_document · per-element confidence")
+    ax_parse.grid(axis="x", linestyle=":", alpha=0.4)
+    ax_parse.legend(loc="lower left", fontsize=9)
+
+    # ---- RIGHT panel: ai_extract per-field confidence ----
+    extract_jitter = rng.uniform(-0.12, 0.12, size=(len(docs), len(EXTRACT_FIELDS)))
+    legend_seen = set()
+    for i, doc in enumerate(docs):
+        if doc not in extract_conf_pdf.index:
+            continue
+        # Per-doc median bar — short black tick at the median of the 6 fields
+        vals_for_doc = [
+            float(extract_conf_pdf.loc[doc, f"{f}_extract_conf"])
+            for f in EXTRACT_FIELDS
+            if pd.notna(extract_conf_pdf.loc[doc, f"{f}_extract_conf"])
+        ]
+        if vals_for_doc:
+            med = float(np.median(vals_for_doc))
+            ax_extract.plot(
+                [med, med], [i - 0.25, i + 0.25],
+                color="#08306b", linewidth=2.5, solid_capstyle="butt", zorder=4,
+            )
+        # 6 colored markers
+        for j, f in enumerate(EXTRACT_FIELDS):
+            val = extract_conf_pdf.loc[doc, f"{f}_extract_conf"]
+            if val is None or pd.isna(val):
+                continue
+            ax_extract.scatter(
+                float(val),
+                i + extract_jitter[i, j],
+                s=85,
+                marker="o",
+                facecolor=FIELD_COLORS[f],
+                edgecolor="black",
+                linewidth=0.6,
+                alpha=0.95,
+                zorder=5,
+                label=(f if f not in legend_seen else None),
+            )
+            legend_seen.add(f)
+
+    ax_extract.axvline(
+        EXTRACT_REVIEW_THRESHOLD, color="#969696", linestyle="--", linewidth=1.4,
+        label=f"review threshold = {EXTRACT_REVIEW_THRESHOLD}",
+    )
+    ax_extract.set_xlabel("ai_extract field confidence")
+    ax_extract.set_xlim(0.0, 1.02)
+    ax_extract.set_title("ai_extract v2.1 · per-field confidence")
+    ax_extract.grid(axis="x", linestyle=":", alpha=0.4)
+    ax_extract.legend(loc="lower left", fontsize=8, ncol=2)
+
+    plt.tight_layout()
+    display(fig)
+    plt.close(fig)  # prevent Databricks from auto-rendering after display() — fixes the duplicate plot
 
 # COMMAND ----------
 

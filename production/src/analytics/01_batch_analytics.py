@@ -74,6 +74,7 @@ dbutils.widgets.text("low_extract_conf_threshold", "0.7")
 dbutils.widgets.text("high_conf_threshold", "0.8")
 dbutils.widgets.text("no_citation_gate_conf", "0.95")
 dbutils.widgets.text("mlflow_experiment", "")
+dbutils.widgets.text("table_suffix", "_dab")
 
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
@@ -81,9 +82,15 @@ LOW_EXTRACT_CONF_THRESHOLD = float(dbutils.widgets.get("low_extract_conf_thresho
 HIGH_CONF_THRESHOLD = float(dbutils.widgets.get("high_conf_threshold"))
 NO_CITATION_GATE_CONF = float(dbutils.widgets.get("no_citation_gate_conf"))
 MLFLOW_EXPERIMENT = dbutils.widgets.get("mlflow_experiment")
+TABLE_SUFFIX = dbutils.widgets.get("table_suffix")
 
 assert CATALOG, "catalog parameter is required"
 assert MLFLOW_EXPERIMENT, "mlflow_experiment parameter is required"
+
+# Suffixed table names — keep DAB-written tables distinct from the dev notebooks.
+EXTRACTED_FLAT_TABLE = f"deeds_extracted_flat{TABLE_SUFFIX}"
+REVIEW_FLAGS_TABLE = f"deeds_review_flags{TABLE_SUFFIX}"
+FIELD_REVIEW_TABLE = f"deeds_field_review{TABLE_SUFFIX}"
 
 spark.sql(f"USE CATALOG {CATALOG}")
 spark.sql(f"USE SCHEMA {SCHEMA}")
@@ -92,7 +99,7 @@ mlflow.set_tracking_uri("databricks")
 mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
 print(
-    f"catalog={CATALOG}  schema={SCHEMA}  "
+    f"catalog={CATALOG}  schema={SCHEMA}  table_suffix={TABLE_SUFFIX!r}  "
     f"low_extract_conf={LOW_EXTRACT_CONF_THRESHOLD}  "
     f"high_conf={HIGH_CONF_THRESHOLD}  "
     f"no_citation_gate={NO_CITATION_GATE_CONF}"
@@ -108,10 +115,10 @@ print(
 
 # COMMAND ----------
 
-extracted_flat = spark.table("deeds_extracted_flat")
+extracted_flat = spark.table(EXTRACTED_FLAT_TABLE)
 
 corpus_stats_row = spark.sql(
-    """
+    f"""
     SELECT
         percentile_approx(conf_mean, 0.10)         AS conf_mean_p10,
         percentile_approx(conf_stddev, 0.25)       AS conf_stddev_p25,
@@ -119,7 +126,7 @@ corpus_stats_row = spark.sql(
         percentile_approx(worst_page_mean, 0.10)   AS worst_page_mean_p10,
         AVG(conf_mean)                             AS conf_mean_corpus_avg,
         STDDEV(conf_mean)                          AS conf_mean_corpus_std
-    FROM deeds_extracted_flat
+    FROM {EXTRACTED_FLAT_TABLE}
     """
 ).collect()[0].asDict()
 
@@ -388,31 +395,34 @@ for _, row in eval_pdf.iterrows():
             "inputs": {
                 "image_name": row["image_name"],
                 "parse_stats": {
-                    "conf_mean": float(row["conf_mean"]) if row["conf_mean"] is not None else None,
+                    "conf_mean": float(row["conf_mean"]) if pd.notna(row["conf_mean"]) else None,
                     "conf_stddev": float(row["conf_stddev"])
-                    if row["conf_stddev"] is not None
+                    if pd.notna(row["conf_stddev"])
                     else None,
                     "worst_page_mean": float(row["worst_page_mean"])
-                    if row["worst_page_mean"] is not None
+                    if pd.notna(row["worst_page_mean"])
                     else None,
                     "max_page_stddev": float(row["max_page_stddev"])
-                    if row["max_page_stddev"] is not None
+                    if pd.notna(row["max_page_stddev"])
                     else None,
                     "error_status_count": int(row["error_status_count"])
-                    if row["error_status_count"] is not None
+                    if pd.notna(row["error_status_count"])
                     else 0,
                 },
                 "extracted": extracted,
                 "shape_ok": bool(row["extraction_shape_ok"]),
                 "completeness": float(row["extraction_completeness"]),
-                "low_conf_field_count": int(row["low_conf_field_count"]),
+                "low_conf_field_count": int(row["low_conf_field_count"])
+                if pd.notna(row["low_conf_field_count"]) else 0,
                 "low_conf_fields": _to_str_list(row.get("low_conf_fields")),
-                "no_citation_field_count": int(row["no_citation_field_count"]),
+                "no_citation_field_count": int(row["no_citation_field_count"])
+                if pd.notna(row["no_citation_field_count"]) else 0,
                 "no_citation_fields": _to_str_list(row.get("no_citation_fields")),
-                "format_violation_count": int(row["format_violation_count"]),
+                "format_violation_count": int(row["format_violation_count"])
+                if pd.notna(row["format_violation_count"]) else 0,
                 "format_violation_fields": _to_str_list(row.get("format_violation_fields")),
                 "min_extract_conf": float(row["min_extract_conf"])
-                if row["min_extract_conf"] is not None
+                if pd.notna(row["min_extract_conf"])
                 else 1.0,
             },
             "outputs": {
@@ -420,7 +430,7 @@ for _, row in eval_pdf.iterrows():
                 "extract_conf": {
                     f: (
                         float(row[f"{f}_extract_conf"])
-                        if row[f"{f}_extract_conf"] is not None
+                        if pd.notna(row[f"{f}_extract_conf"])
                         else None
                     )
                     for f in EXTRACT_FIELDS
@@ -584,10 +594,10 @@ review_flags = (
 (
     review_flags.write.mode("overwrite")
     .option("overwriteSchema", "true")
-    .saveAsTable("deeds_review_flags")
+    .saveAsTable(REVIEW_FLAGS_TABLE)
 )
 
-display(spark.table("deeds_review_flags").orderBy(F.col("review_priority").desc()))
+display(spark.table(REVIEW_FLAGS_TABLE).orderBy(F.col("review_priority").desc()))
 
 # COMMAND ----------
 
@@ -692,10 +702,10 @@ if field_review_rows:
     (
         review_sdf.write.mode("overwrite")
         .option("overwriteSchema", "true")
-        .saveAsTable("deeds_field_review")
+        .saveAsTable(FIELD_REVIEW_TABLE)
     )
     display(
-        spark.table("deeds_field_review").orderBy(
+        spark.table(FIELD_REVIEW_TABLE).orderBy(
             F.col("extract_conf").asc_nulls_first(), F.col("image_name")
         )
     )
@@ -705,4 +715,4 @@ else:
         [],
         "image_name STRING, field STRING, value STRING, extract_conf DOUBLE, "
         "citation_ids ARRAY<INT>, cited_regions STRING, reasons ARRAY<STRING>",
-    ).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("deeds_field_review")
+    ).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(FIELD_REVIEW_TABLE)

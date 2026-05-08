@@ -2,15 +2,14 @@
 # MAGIC %md
 # MAGIC # 02 — Evaluate Without Ground Truth
 # MAGIC
-# MAGIC Operational evaluation that runs after `01_parse_and_extract`. Three layers of signal:
+# MAGIC Operational evaluation that runs after `01_parse_and_extract`. Two layers of signal,
+# MAGIC both deterministic — no LLM judge, no per-doc API cost:
 # MAGIC
 # MAGIC 1. **Doc-level corpus outliers** on parse confidence (low mean, high variance, bad page,
 # MAGIC    parse errors) — coarse "look at this whole doc" pointer.
 # MAGIC 2. **Field-level extraction confidence** from `ai_extract` v2.1 — fine-grained "look at
 # MAGIC    this specific cell" pointer. Each field's `<field>_extract_conf` is in [0, 1];
 # MAGIC    anything below `LOW_EXTRACT_CONF_THRESHOLD` is flagged.
-# MAGIC 3. **Absence-aware LLM judge** — categorical plausibility check that handles legitimate
-# MAGIC    absences and is told which `citation_ids` the extractor claimed it grounded on.
 # MAGIC
 # MAGIC **Important:** empty/null extracted fields are *not* automatically failures. A blank
 # MAGIC value is correct when the entity does not appear in the document. Field-level low-conf
@@ -40,7 +39,6 @@ from operator import add
 import mlflow
 import pandas as pd
 from mlflow.entities import Feedback
-from mlflow.genai.judges import make_judge
 from mlflow.genai.scorers import scorer
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col
@@ -48,7 +46,6 @@ from pyspark.sql.functions import col
 CATALOG = "fins_genai"
 SCHEMA = "unstructured_documents"
 EXPERIMENT = "/Users/q.yu@databricks.com/mlflow_experiments/deeds_poc_eval_no_gt"
-JUDGE_MODEL = "databricks:/databricks-claude-sonnet-4-6"
 
 # Field-level extract confidence threshold — tune empirically. 0.7 is a safe starting point.
 # A non-null field with confidence below this gets flagged for human review.
@@ -135,8 +132,8 @@ outlier_flags = (
 # MAGIC %md
 # MAGIC ## 3. Heuristic shape checks (extraction-side)
 # MAGIC
-# MAGIC Validate format **only when a field is non-null**. Fully-empty extractions pass shape;
-# MAGIC the LLM judge handles the "is this absence legitimate?" question.
+# MAGIC Validate format **only when a field is non-null**. Fully-empty extractions pass shape —
+# MAGIC absence is treated as a legitimate "entity not in the document" rather than a failure.
 
 # COMMAND ----------
 
@@ -193,7 +190,8 @@ shape_checked = (
 # MAGIC
 # MAGIC `ai_extract` v2.1 returns a `<field>_extract_conf` per scalar field. We flag any
 # MAGIC **non-null** field whose confidence is below `LOW_EXTRACT_CONF_THRESHOLD`. Null
-# MAGIC fields are *not* flagged here — absence is handled by the LLM judge separately.
+# MAGIC fields are *not* flagged here — a missing field has no confidence to flag, and a
+# MAGIC genuine absence in the source document should not generate a review item.
 # MAGIC
 # MAGIC Two derived columns are added per doc:
 # MAGIC - `low_conf_field_count` — number of fields below the threshold (0–6)
@@ -308,9 +306,8 @@ for _, row in eval_pdf.iterrows():
                 "low_conf_fields": _to_str_list(row.get("low_conf_fields")),
                 "min_extract_conf": float(row["min_extract_conf"]) if row["min_extract_conf"] is not None else 1.0,
             },
-            # extract_conf and citation_ids belong with the model's *output* so the judge
-            # treats them as the extractor's own claims (value + grounding) — not as
-            # additional context handed in.
+            # extract_conf and citation_ids belong with the model's *output* — they are the
+            # extractor's own claims (value + grounding), not deterministic context.
             "outputs": {
                 "extracted": extracted,
                 "extract_conf": extracted_conf,
@@ -322,7 +319,7 @@ for _, row in eval_pdf.iterrows():
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Custom scorers + absence-aware LLM judge
+# MAGIC ## 5. Custom scorers (deterministic — no LLM judge)
 
 # COMMAND ----------
 
@@ -373,61 +370,6 @@ def low_conf_field_count(inputs, outputs):
     )
 
 
-# Absence-aware categorical judge — invoked once per document below; the scorer
-# wrapper just passes the precomputed label through to MLflow. The judge sees
-# per-field extract_conf and citation_ids so it can reason about *what evidence*
-# the extractor claimed to ground each field on.
-extraction_plausibility_judge = make_judge(
-    name="extraction_plausibility",
-    instructions=(
-        "You are judging whether the entity extraction below is plausible given the parsed "
-        "document text.\n\n"
-        "Document text (may be truncated):\n"
-        "{{ inputs }}\n\n"
-        "Model output, including per-field extract_conf and citation_ids that the extractor "
-        "claimed to ground on:\n"
-        "{{ outputs }}\n\n"
-        "Important rules:\n"
-        "- A null or empty extracted value is CORRECT when the parsed text genuinely does not "
-        "contain that entity. A field with no citation_ids and a null value is consistent.\n"
-        "- A non-null extracted value with empty citation_ids is suspicious — the extractor did not "
-        "cite any source span. If the value is also clearly wrong, mark `looks_incorrect`.\n"
-        "- A field with extract_conf < 0.5 deserves extra scrutiny — verify the value really "
-        "appears in the document text.\n"
-        "- Mark `looks_incorrect` ONLY if (a) a non-null extracted value is clearly wrong given "
-        "the text, OR (b) a field is null/empty but the text clearly contains a value for it.\n"
-        "- Mark `partial` for minor OCR drift on free-form fields like DocumentTitle (correct "
-        "entity, slight character errors).\n"
-        "- Otherwise mark `looks_correct`.\n\n"
-        "Respond with exactly one of: looks_correct, partial, looks_incorrect."
-    ),
-    model=JUDGE_MODEL,
-)
-
-
-def _run_judge(inputs_blob, outputs_blob):
-    """Invoke the judge directly and return its categorical label.
-
-    `make_judge` returns a callable Judge — calling it matches the scorer signature
-    (inputs, outputs, expectations, trace) and returns an mlflow Feedback object.
-    """
-    fb = extraction_plausibility_judge(inputs=inputs_blob, outputs=outputs_blob)
-    return getattr(fb, "value", None)
-
-
-# Pre-compute the judge label per row so we have it both for MLflow scorers
-# and for the deeds_review_flags table — avoids parsing trace DataFrames after the run.
-for record in eval_data:
-    record["inputs"]["judge_label"] = _run_judge(record["inputs"], record["outputs"])
-
-print({r["inputs"]["image_name"]: r["inputs"]["judge_label"] for r in eval_data})
-
-
-@scorer
-def extraction_plausibility(inputs, outputs):
-    label = inputs.get("judge_label")
-    return Feedback(value=str(label) if label is not None else "unknown", rationale="absence-aware judge label")
-
 # COMMAND ----------
 
 # MAGIC %md
@@ -445,7 +387,6 @@ results = mlflow.genai.evaluate(
         extraction_completeness,
         min_extract_conf,
         low_conf_field_count,
-        extraction_plausibility,
     ],
 )
 
@@ -457,28 +398,18 @@ print(f"Metrics: {results.metrics}")
 # MAGIC %md
 # MAGIC ## 7. Build `deeds_review_flags`
 # MAGIC
-# MAGIC Joins the corpus-relative outlier flags + shape check + precomputed judge label.
+# MAGIC Joins the corpus-relative outlier flags + shape check + field-level confidence flags.
 
 # COMMAND ----------
-
-judge_lookup = pd.DataFrame(
-    [
-        {"image_name": r["inputs"]["image_name"], "extraction_plausibility": r["inputs"]["judge_label"]}
-        for r in eval_data
-    ]
-)
-judge_sdf = spark.createDataFrame(judge_lookup)
 
 # review_priority combines:
 #   - 4 doc-level outlier flags (cap 4)
 #   - !extraction_shape_ok (cap 1)
-#   - judge says looks_incorrect (cap 1)
 #   - low_conf_field_count (cap 6)
-# Total range: 0..12. Field-level signal dominates so a doc with 5 low-conf fields
+# Total range: 0..11. Field-level signal dominates so a doc with 5 low-conf fields
 # outranks a doc with no field issues but a single doc-level outlier.
 review_flags = (
     field_flagged
-    .join(judge_sdf, "image_name", "left")
     .withColumn(
         "review_priority",
         F.coalesce(col("outlier_low_mean").cast("int"), F.lit(0))
@@ -486,10 +417,6 @@ review_flags = (
         + F.coalesce(col("outlier_bad_page").cast("int"), F.lit(0))
         + F.coalesce(col("has_parse_error").cast("int"), F.lit(0))
         + F.coalesce((~col("extraction_shape_ok")).cast("int"), F.lit(0))
-        + F.coalesce(
-            (col("extraction_plausibility") == F.lit("looks_incorrect")).cast("int"),
-            F.lit(0),
-        )
         + F.coalesce(col("low_conf_field_count"), F.lit(0)),
     )
     .select(
@@ -510,7 +437,6 @@ review_flags = (
         "low_conf_field_count",
         "low_conf_fields",
         *[f"{f}_low_extract_conf" for f in EXTRACT_FIELDS],
-        "extraction_plausibility",
         "review_priority",
     )
 )

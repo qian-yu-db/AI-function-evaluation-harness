@@ -55,15 +55,17 @@ from pyspark.sql.functions import col, expr  # noqa: E402
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "unstructured_documents")
 dbutils.widgets.text("checkpoint_volume", "deeds_checkpoints")
+dbutils.widgets.text("table_suffix", "_dab")
 
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
 CHECKPOINT_VOLUME = dbutils.widgets.get("checkpoint_volume")
+TABLE_SUFFIX = dbutils.widgets.get("table_suffix")
 
 assert CATALOG, "catalog parameter is required"
 
-INPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_parsed"
-OUTPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_extracted_flat"
+INPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_parsed{TABLE_SUFFIX}"
+OUTPUT_TABLE = f"{CATALOG}.{SCHEMA}.deeds_extracted_flat{TABLE_SUFFIX}"
 CHECKPOINT_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/{CHECKPOINT_VOLUME}/02_extract"
 
 print(f"Reading from:    {INPUT_TABLE}")
@@ -132,7 +134,7 @@ def _doc_stats_df(parsed_df):
         .selectExpr(
             "image_name",
             "error_status_count",
-            "try_cast(element:page_id AS INT) AS page_id",
+            "try_cast(element:bbox[0]:page_id AS INT) AS page_id",
             "try_cast(element:confidence AS DOUBLE) AS confidence",
         )
     )
@@ -191,7 +193,7 @@ def _doc_stats_df(parsed_df):
 
 
 def process_batch(batch_df, batch_id):
-    if batch_df.rdd.isEmpty():
+    if batch_df.isEmpty():
         print(f"[batch {batch_id}] empty, skipping")
         return
 
@@ -223,7 +225,6 @@ def process_batch(batch_df, batch_id):
         .saveAsTable(OUTPUT_TABLE)
     )
     print(f"[batch {batch_id}] wrote {final.count()} rows to {OUTPUT_TABLE}")
-
 
 # COMMAND ----------
 

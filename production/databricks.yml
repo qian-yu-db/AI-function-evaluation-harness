@@ -17,8 +17,8 @@ variables:
     description: "UC volume for streaming checkpoints (created by this bundle)."
     default: "deeds_checkpoints"
   image_subfolder:
-    description: "Subfolder under the input volume where ai_parse_document writes rendered page images. Required for citation rendering — metadata.pages[].image_uri is null without this."
-    default: "images"
+    description: "Subfolder under the input volume where ai_parse_document writes rendered page images. Required for citation rendering — metadata.pages[].image_uri is null without this. Suffixed `_dab` to keep DAB-rendered images separate from notebook-rendered ones in the shared volume."
+    default: "images_dab"
   low_extract_conf_threshold:
     description: "Field-level confidence threshold for review flagging."
     default: "0.7"
@@ -33,6 +33,9 @@ variables:
   schedule_pause_status:
     description: "PAUSED for dev (manual runs only), UNPAUSED for prod (cron-driven)."
     default: "PAUSED"
+  table_suffix:
+    description: "Suffix appended to every Delta table name written by this bundle (deeds_parsed, deeds_extracted_flat, deeds_review_flags, deeds_field_review). Avoids clobbering tables produced by the dev notebooks under the same catalog/schema."
+    default: "_dab"
 
 targets:
   dev:

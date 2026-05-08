@@ -13,6 +13,7 @@ resources:
               input_volume: ${var.input_volume}
               checkpoint_volume: ${var.checkpoint_volume}
               image_subfolder: ${var.image_subfolder}
+              table_suffix: ${var.table_suffix}
         - task_key: extract
           depends_on:
             - task_key: parse
@@ -22,6 +23,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               checkpoint_volume: ${var.checkpoint_volume}
+              table_suffix: ${var.table_suffix}
       schedule:
         quartz_cron_expression: "0 0 2 * * ?"
         timezone_id: "UTC"
@@ -42,6 +44,7 @@ resources:
               high_conf_threshold: ${var.high_conf_threshold}
               no_citation_gate_conf: ${var.no_citation_gate_conf}
               mlflow_experiment: ${var.mlflow_experiment}
+              table_suffix: ${var.table_suffix}
       schedule:
         quartz_cron_expression: "0 0 3 * * ?"
         timezone_id: "UTC"

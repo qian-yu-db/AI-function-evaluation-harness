@@ -22,20 +22,7 @@ If you're new to this repo, read in this order:
 3. **Notebook 02 (xconf)** — the production-shape evaluation. The cross-confidence layer is the most important signal added on top of notebook 01.
 4. **Notebook 03** — only when you have a labeled corpus. Calibration check tells you whether `extract_conf` is trustworthy enough to gate review.
 
-## Updating these docs
-
-These files are hand-authored, not generated. Edit the `.html` in place, commit, push — GitHub Pages republishes automatically (about a minute after a push to `main`).
-
-```
-git add docs/<file>.html docs/README.md
-git commit -m "..."
-git push
-```
-
-Pages is configured to deploy from `main` / `/docs`; this README also serves as the index at the site root.
-
 ## Related (source, in the repo)
 
 - `notebooks/` — the actual `.py` notebooks that these docs describe.
 - `production/` — the Databricks Asset Bundle that runs the same pipeline as a scheduled job (parse → extract → analytics).
-- `data/GroundTruth.csv` — labels used by notebook 03.

@@ -197,6 +197,10 @@ def process_batch(batch_df, batch_id):
         print(f"[batch {batch_id}] empty, skipping")
         return
 
+    # Cache the micro-batch — it's read twice (extract branch + stats branch).
+    # Without this, ai_extract effectively runs against a re-read of the source.
+    batch_df = batch_df.cache()
+
     # ai_extract — wide projection of values, confidences, citation_ids per field
     extracted = (
         batch_df.withColumn("extracted", expr(AI_EXTRACT_EXPR))
@@ -216,15 +220,24 @@ def process_batch(batch_df, batch_id):
     # Per-doc parse confidence stats from the parsed VARIANT
     stats = _doc_stats_df(batch_df)
 
-    final = extracted.join(stats, "image_name", "left")
+    # Cache the joined result so the trailing row-count log doesn't re-run ai_extract.
+    final = extracted.join(stats, "image_name", "left").cache()
+    n_rows = final.count()
 
+    # txnVersion+txnAppId make this Delta write idempotent on batch_id, so a
+    # foreachBatch retry after a mid-write crash won't double-append.
     (
         final.write.format("delta")
         .mode("append")
+        .option("txnVersion", batch_id)
+        .option("txnAppId", "deeds_extract")
         .option("mergeSchema", "true")
         .saveAsTable(OUTPUT_TABLE)
     )
-    print(f"[batch {batch_id}] wrote {final.count()} rows to {OUTPUT_TABLE}")
+    print(f"[batch {batch_id}] wrote {n_rows} rows to {OUTPUT_TABLE}")
+
+    final.unpersist()
+    batch_df.unpersist()
 
 # COMMAND ----------
 
@@ -236,15 +249,12 @@ def process_batch(batch_df, batch_id):
 query = (
     spark.readStream.format("delta").table(INPUT_TABLE)
     .writeStream
+    .queryName("deeds_extract_stream")
     .foreachBatch(process_batch)
     .option("checkpointLocation", CHECKPOINT_PATH)
     .trigger(availableNow=True)
     .start()
 )
 
-query.awaitTermination()
-
-# COMMAND ----------
-
-n_extracted = spark.table(OUTPUT_TABLE).count()
-print(f"{OUTPUT_TABLE}: {n_extracted} rows total")
+# No query.awaitTermination() — see note in 01_stream_parse.py. The Jobs
+# service holds the task open until the streaming query drains.

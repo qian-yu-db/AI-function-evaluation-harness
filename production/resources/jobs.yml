@@ -1,8 +1,8 @@
 resources:
   jobs:
-    deeds_streaming:
-      name: "[${bundle.target}] deeds_streaming"
-      description: "Daily streaming pipeline: parse new documents and extract entities (ai_parse_document → ai_extract v2.1). Trigger.AvailableNow per stage."
+    deeds_pipeline:
+      name: "[${bundle.target}] deeds_pipeline"
+      description: "Daily: parse new docs (ai_parse_document) → extract entities (ai_extract v2.1) → batch analytics (review queues, no LLM judge). Stages 1-2 are streaming notebooks with Trigger.AvailableNow; stage 3 is plain batch. Tasks chained via depends_on — analytics never runs until extract commits."
       tasks:
         - task_key: parse
           notebook_task:
@@ -14,6 +14,7 @@ resources:
               checkpoint_volume: ${var.checkpoint_volume}
               image_subfolder: ${var.image_subfolder}
               table_suffix: ${var.table_suffix}
+
         - task_key: extract
           depends_on:
             - task_key: parse
@@ -24,17 +25,10 @@ resources:
               schema: ${var.schema}
               checkpoint_volume: ${var.checkpoint_volume}
               table_suffix: ${var.table_suffix}
-      schedule:
-        quartz_cron_expression: "0 0 2 * * ?"
-        timezone_id: "UTC"
-        pause_status: ${var.schedule_pause_status}
-      max_concurrent_runs: 1
 
-    deeds_analytics:
-      name: "[${bundle.target}] deeds_analytics"
-      description: "Daily batch analytics: corpus outliers + field-level deterministic flags + review queue. No LLM judge."
-      tasks:
         - task_key: analytics
+          depends_on:
+            - task_key: extract
           notebook_task:
             notebook_path: ../src/analytics/01_batch_analytics.py
             base_parameters:
@@ -45,8 +39,9 @@ resources:
               no_citation_gate_conf: ${var.no_citation_gate_conf}
               mlflow_experiment: ${var.mlflow_experiment}
               table_suffix: ${var.table_suffix}
+
       schedule:
-        quartz_cron_expression: "0 0 3 * * ?"
+        quartz_cron_expression: "0 0 2 * * ?"
         timezone_id: "UTC"
         pause_status: ${var.schedule_pause_status}
       max_concurrent_runs: 1

@@ -93,6 +93,7 @@ parsed_df = (
 
 query = (
     parsed_df.writeStream.format("delta")
+    .queryName("deeds_parse_stream")
     .outputMode("append")
     .option("checkpointLocation", CHECKPOINT_PATH)
     .option("mergeSchema", "true")
@@ -100,10 +101,7 @@ query = (
     .toTable(OUTPUT_TABLE)
 )
 
-query.awaitTermination()
-
-# COMMAND ----------
-
-# Smoke-check the run — number of rows currently in the output table
-n_parsed = spark.table(OUTPUT_TABLE).count()
-print(f"{OUTPUT_TABLE}: {n_parsed} rows total")
+# No query.awaitTermination() — per Databricks docs, the Jobs service tracks
+# the active streaming query and prevents task completion until it finishes.
+# Calling awaitTermination() here would disrupt backlog metrics and job
+# notifications. The Trigger.AvailableNow on the query makes the run bounded.

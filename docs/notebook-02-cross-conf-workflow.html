@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Notebook 02 — cross-confidence workflow</title>
+<style>
+:root{
+  --text:#0f172a; --text-soft:#475569; --text-mute:#94a3b8;
+  --rule:#e2e8f0; --rule-soft:#eef2f6;
+  --bg:#fafaf9; --surface:#ffffff; --surface-2:#f5f5f4; --code-bg:#f1f5f9;
+  --parse:#0d9488; --parse-bg:#ccfbf1; --parse-tint:#f0fdfa;
+  --extract:#7c3aed; --extract-bg:#ede9fe; --extract-tint:#f5f3ff;
+  --cross:#db2777; --cross-bg:#fce7f3; --cross-tint:#fdf2f8;
+  --warn:#d97706; --warn-bg:#fef3c7; --warn-tint:#fffbeb;
+  --good:#059669; --good-bg:#d1fae5;
+  --accent:#2563eb; --accent-bg:#dbeafe;
+  --shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.02);
+  --max:880px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{background:var(--bg)}
+body{margin:0; color:var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
+main{max-width:var(--max); margin:0 auto; padding:56px 32px 96px}
+
+.eyebrow{display:inline-block; font-size:11px; font-weight:600;
+  letter-spacing:.08em; text-transform:uppercase;
+  color:var(--cross); background:var(--cross-bg);
+  padding:4px 10px; border-radius:999px; margin-bottom:14px;}
+h1{font-size:28px; line-height:1.25; font-weight:700; letter-spacing:-.01em; margin:0 0 8px}
+.subtitle{font-size:16px; color:var(--text-soft); margin:0 0 36px; max-width:720px}
+
+h2{font-size:20px; font-weight:600; letter-spacing:-.005em;
+  margin:48px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--rule);}
+h2 .num{display:inline-block; font-size:13px; color:var(--text-mute); font-weight:500;
+  font-variant-numeric:tabular-nums; letter-spacing:.04em; margin-right:10px;}
+h3{font-size:15px; font-weight:600; margin:24px 0 8px}
+p{margin:0 0 12px}
+ul,ol{padding-left:22px; margin:0 0 12px}
+li{margin-bottom:4px}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+
+code{font-family:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
+  font-size:.88em; background:var(--code-bg); padding:1.5px 6px; border-radius:4px; color:#1e293b;}
+pre{background:var(--code-bg); border:1px solid var(--rule-soft); border-left:3px solid var(--accent);
+  padding:14px 16px; overflow-x:auto; font-size:13px; line-height:1.55; border-radius:6px; margin:14px 0 18px;}
+pre code{background:none; padding:0; font-size:inherit; color:var(--text)}
+
+table{border-collapse:separate; border-spacing:0; width:100%; margin:14px 0 22px; font-size:14px;
+  background:var(--surface); border:1px solid var(--rule); border-radius:8px; overflow:hidden}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+th{font-weight:600; background:var(--surface-2); color:var(--text); font-size:13px}
+tbody tr:hover{background:var(--surface-2)}
+
+.card{background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+  padding:18px 20px; box-shadow:var(--shadow); margin:14px 0;}
+.cards{display:grid; gap:14px; margin:16px 0 20px}
+.cards.two{grid-template-columns:1fr 1fr}
+.cards.three{grid-template-columns:1fr 1fr 1fr}
+@media (max-width: 720px){.cards.two,.cards.three{grid-template-columns:1fr}}
+.card .label{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  margin-bottom:6px; display:flex; align-items:center; gap:8px;}
+.dot{width:10px; height:10px; border-radius:3px; display:inline-block}
+.dot.parse{background:var(--parse)}.dot.extract{background:var(--extract)}
+.dot.cross{background:var(--cross)}.dot.warn{background:var(--warn)}
+.dot.good{background:var(--good)}.dot.accent{background:var(--accent)}
+.card.parse{border-top:3px solid var(--parse)} .card.parse .label{color:var(--parse)}
+.card.extract{border-top:3px solid var(--extract)} .card.extract .label{color:var(--extract)}
+.card.cross{border-top:3px solid var(--cross)} .card.cross .label{color:var(--cross)}
+
+.note,.warn-box{border-radius:8px; padding:12px 16px; margin:16px 0; font-size:14px;
+  background:var(--accent-bg); border-left:3px solid var(--accent); color:#1e3a8a;}
+.note .lbl,.warn-box .lbl{font-weight:600; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+  display:block; margin-bottom:2px;}
+.warn-box{background:var(--warn-bg); border-left-color:var(--warn); color:#78350f}
+blockquote{margin:14px 0 16px; padding:12px 18px; border-left:3px solid var(--text-mute);
+  background:var(--surface-2); color:var(--text-soft); font-style:italic; border-radius:0 6px 6px 0;}
+
+.toc{background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+  padding:16px 20px; margin:24px 0 32px; box-shadow:var(--shadow);}
+.toc .label{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--text-mute); margin-bottom:8px}
+.toc ol{margin:0; padding-left:18px; columns:2; column-gap:32px; font-size:14px}
+.toc li{margin-bottom:4px; break-inside:avoid}
+@media (max-width:600px){.toc ol{columns:1}}
+
+figure{margin:20px 0 24px; background:var(--surface);
+  border:1px solid var(--rule); border-radius:10px; padding:20px; box-shadow:var(--shadow);}
+figure svg{display:block; width:100%; height:auto; max-width:100%}
+figcaption{font-size:13px; color:var(--text-mute); margin-top:10px; text-align:center; line-height:1.5;}
+
+footer{margin-top:64px; padding-top:18px; border-top:1px solid var(--rule);
+  font-size:13px; color:var(--text-mute);} footer a{color:var(--text-soft)}
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">Notebook 02 · Cross-confidence variant · Workflow</div>
+<h1>Catching confident extractions over OCR-garbled text</h1>
+<p class="subtitle">
+  Adds a bbox-overlap layer that fuses <code>ai_extract</code> field confidence with <code>ai_parse_document</code>
+  element confidence. No LLM judge — every flag is logic, statistics, or geometry.
+</p>
+
+<!-- System overview hero -->
+<figure>
+<svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="System overview">
+  <defs>
+    <marker id="ar-parse" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0d9488"/></marker>
+    <marker id="ar-extract" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7c3aed"/></marker>
+    <marker id="ar-cross" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#db2777"/></marker>
+    <marker id="ar-ink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0f172a"/></marker>
+  </defs>
+
+  <!-- inputs -->
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <rect x="20" y="30" width="200" height="68" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.5"/>
+    <text x="120" y="56" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">deeds_parsed_elements</text>
+    <text x="120" y="74" text-anchor="middle" font-size="11" fill="#047857">per-element text · bbox · conf</text>
+    <text x="120" y="89" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#0d9488">parse-side</text>
+
+    <rect x="20" y="225" width="200" height="68" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="120" y="251" text-anchor="middle" font-size="12" font-weight="700" fill="#5b21b6">deeds_extracted_flat</text>
+    <text x="120" y="269" text-anchor="middle" font-size="11" fill="#6d28d9">values · extract_conf · citations</text>
+    <text x="120" y="284" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#7c3aed">extract-side</text>
+
+    <!-- center cross box -->
+    <rect x="270" y="100" width="280" height="120" rx="10" fill="white" stroke="#0f172a" stroke-width="2"/>
+    <text x="410" y="128" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">Cross-confidence layer</text>
+    <text x="410" y="148" text-anchor="middle" font-size="11" fill="#475569">explode citations · join on bbox</text>
+    <text x="410" y="164" text-anchor="middle" font-size="11" fill="#475569">IoU ≥ τ · min(parse_conf)</text>
+    <rect x="290" y="180" width="100" height="26" rx="4" fill="#fce7f3" stroke="#db2777"/>
+    <text x="340" y="197" text-anchor="middle" font-size="11" font-weight="600" fill="#9d174d">source_conf</text>
+    <rect x="400" y="180" width="135" height="26" rx="4" fill="#fce7f3" stroke="#db2777"/>
+    <text x="467" y="197" text-anchor="middle" font-size="11" font-weight="600" fill="#9d174d">calibration_mismatch</text>
+
+    <!-- arrows in -->
+    <path d="M 220 60 Q 250 60 270 130" stroke="#0d9488" stroke-width="2" fill="none" marker-end="url(#ar-parse)"/>
+    <path d="M 220 260 Q 250 260 270 190" stroke="#7c3aed" stroke-width="2" fill="none" marker-end="url(#ar-extract)"/>
+
+    <!-- outputs -->
+    <path d="M 550 130 L 600 130" stroke="#0f172a" stroke-width="2" fill="none" marker-end="url(#ar-ink)"/>
+    <path d="M 550 190 L 600 190" stroke="#0f172a" stroke-width="2" fill="none" marker-end="url(#ar-ink)"/>
+    <rect x="605" y="100" width="195" height="60" rx="8" fill="#0f172a"/>
+    <text x="702" y="124" text-anchor="middle" font-size="12" font-weight="700" fill="white">deeds_review_flags_xconf</text>
+    <text x="702" y="142" text-anchor="middle" font-size="10" fill="#cbd5e1">per-doc · sortable priority</text>
+    <rect x="605" y="170" width="195" height="60" rx="8" fill="#0f172a"/>
+    <text x="702" y="194" text-anchor="middle" font-size="12" font-weight="700" fill="white">deeds_field_review_xconf</text>
+    <text x="702" y="212" text-anchor="middle" font-size="10" fill="#cbd5e1">per-cell · triage queue</text>
+  </g>
+</svg>
+<figcaption>Two source tables in, two review queues out. The xconf layer produces <code>source_conf</code> and three calibration booleans per (doc, field).</figcaption>
+</figure>
+
+<nav class="toc">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#io">Inputs and outputs</a></li>
+    <li><a href="#layers">Three deterministic signal layers</a></li>
+    <li><a href="#whats-new">What changes vs. baseline</a></li>
+    <li><a href="#xconf">Cross-confidence pipeline (§3c)</a></li>
+    <li><a href="#calibration">Calibration-mismatch flags (§3d)</a></li>
+    <li><a href="#outputs">Output tables</a></li>
+    <li><a href="#workflow">Reviewer workflow</a></li>
+    <li><a href="#knobs">Tunable knobs</a></li>
+    <li><a href="#failures">Failure modes</a></li>
+    <li><a href="#verification">Verification</a></li>
+  </ol>
+</nav>
+
+<h2 id="purpose"><span class="num">§ 01</span>Purpose</h2>
+<p>
+  This notebook is a sibling of <code>02_eval_no_ground_truth.py</code>. It adds a fourth signal layer that cross-checks
+  <code>ai_extract</code> field-level confidence against <code>ai_parse_document</code> element-level confidence over the
+  cited bounding-box region. The added layer catches a failure mode that neither score alone can flag:
+</p>
+<blockquote>
+  The model is confident over OCR garbage. <code>extract_conf</code> is high because the extractor reasoned cleanly over
+  what it saw, but the source element was mis-OCR'd in the first place — so the value is wrong with high confidence.
+</blockquote>
+<p>The three layers from the original notebook 02 are unchanged. See <code>docs/notebook-02-methods.md</code> for those, and <code>docs/plan-cross-confidence-check.md</code> for the original design proposal.</p>
+
+<h2 id="io"><span class="num">§ 02</span>Inputs and outputs</h2>
+<div class="cards two">
+  <div class="card parse">
+    <div class="label"><span class="dot parse"></span>Inputs</div>
+    <ul style="margin:6px 0 0; padding-left:18px; font-size:14px; color:var(--text-soft)">
+      <li><code>deeds_extracted_flat</code> — extraction output, per-field <code>extract_conf</code>, <code>citation_ids</code>.</li>
+      <li><code>deeds_parsed_elements</code> — per-element text, bbox, confidence.</li>
+    </ul>
+  </div>
+  <div class="card cross">
+    <div class="label"><span class="dot cross"></span>Outputs (suffixed <code>_xconf</code>)</div>
+    <ul style="margin:6px 0 0; padding-left:18px; font-size:14px; color:var(--text-soft)">
+      <li>MLflow run under <code>deeds_poc_eval_no_gt_xconf</code>.</li>
+      <li><code>deeds_review_flags_xconf</code> — per-doc with cross-conf columns.</li>
+      <li><code>deeds_field_review_xconf</code> — per-(doc, field) review queue.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="layers"><span class="num">§ 03</span>Three deterministic signal layers</h2>
+<p>All three are pure logic, statistics, or geometry — no per-document LLM API cost.</p>
+
+<div class="cards three">
+  <div class="card parse">
+    <div class="label"><span class="dot parse"></span>Layer 1 · parse-side</div>
+    <div style="font-weight:600">Doc-level corpus outliers</div>
+    <p style="margin:6px 0 0; color:var(--text-soft); font-size:14px">
+      Four booleans from <code>ai_parse_document</code> aggregates: <code>conf_mean</code>, <code>conf_stddev</code>, <code>worst_page_mean</code>, <code>error_status_count</code>.
+    </p>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-mute)">Catches: "this whole doc is OCR'd badly".</p>
+  </div>
+  <div class="card extract">
+    <div class="label"><span class="dot extract"></span>Layer 2 · extract-side</div>
+    <div style="font-weight:600">Field-level extract confidence</div>
+    <p style="margin:6px 0 0; color:var(--text-soft); font-size:14px">
+      Per-cell threshold on <code>&lt;field&gt;_extract_conf</code> with non-null guard. Rolls up to <code>low_conf_field_count</code>, <code>low_conf_fields</code>, <code>min_extract_conf</code>.
+    </p>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-mute)">Catches: "this specific cell is uncertain".</p>
+  </div>
+  <div class="card cross">
+    <div class="label"><span class="dot cross"></span>Layer 3 · cross (new)</div>
+    <div style="font-weight:600">Bbox-overlap fusion</div>
+    <p style="margin:6px 0 0; color:var(--text-soft); font-size:14px">
+      <code>ai_extract</code> cited bbox ↔ <code>ai_parse_document</code> element confidence via IoU. Produces <code>source_conf</code> and three calibration booleans.
+    </p>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-mute)">Catches: "model is confident over OCR garbage".</p>
+  </div>
+</div>
+
+<p>The earlier absence-aware LLM judge was removed for cost. The cross-confidence layer subsumes its main signal — calibration mismatch — at the field level, deterministically.</p>
+
+<h2 id="whats-new"><span class="num">§ 04</span>What changes vs. the original notebook 02</h2>
+<p>Sections 1–3b are identical. Only the experiment path and table-name constants differ in section 1.</p>
+
+<table>
+  <thead><tr><th>Section</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td>§3c</td><td><b>New.</b> Cross-confidence pipeline computing <code>&lt;field&gt;_source_conf</code>.</td></tr>
+    <tr><td>§3d</td><td><b>New.</b> Three calibration-mismatch booleans per (doc, field).</td></tr>
+    <tr><td>§4</td><td><b>Changed.</b> Eval dataset adds <code>source_conf</code>, <code>min_source_conf</code>, <code>calibration_mismatch_field_count</code> to <code>inputs</code>.</td></tr>
+    <tr><td>§5</td><td><b>Changed.</b> Two new pass-through scorers on top of the existing seven.</td></tr>
+    <tr><td>§6</td><td><b>Changed.</b> <code>genai.evaluate</code> now passes 9 scorers.</td></tr>
+    <tr><td>§7</td><td><b>Changed.</b> <code>review_priority</code> formula adds <code>calibration_mismatch_field_count</code>.</td></tr>
+    <tr><td>§8</td><td><b>Changed.</b> Inclusion rule extended; row schema gains five booleans.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="xconf"><span class="num">§ 05</span>Cross-confidence pipeline (§3c)</h2>
+<p>Six-step vectorized PySpark pipeline.</p>
+
+<figure>
+<svg viewBox="0 0 820 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Six-step join pipeline">
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#94a3b8"/></marker></defs>
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <text x="20" y="22" font-size="12" font-weight="600" fill="#475569">Vectorized join · per (image_name, field)</text>
+    <g transform="translate(0 40)">
+      <g>
+        <rect x="10" y="0" width="120" height="60" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+        <text x="70" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#5b21b6">1 · EXPLODE</text>
+        <text x="70" y="36" text-anchor="middle" font-size="10" fill="#6d28d9">citation_ids</text>
+        <text x="70" y="50" text-anchor="middle" font-size="9" fill="#7c3aed">→ (img, field, cid)</text>
+      </g>
+      <line x1="130" y1="30" x2="148" y2="30" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr)"/>
+      <g>
+        <rect x="150" y="0" width="120" height="60" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.2"/>
+        <text x="210" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#5b21b6">2 · DECODE</text>
+        <text x="210" y="36" text-anchor="middle" font-size="10" fill="#6d28d9">metadata.citations</text>
+        <text x="210" y="50" text-anchor="middle" font-size="9" fill="#7c3aed">VARIANT → rows</text>
+      </g>
+      <line x1="270" y1="30" x2="288" y2="30" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr)"/>
+      <g>
+        <rect x="290" y="0" width="110" height="60" rx="8" fill="#fff" stroke="#94a3b8" stroke-width="1.2"/>
+        <text x="345" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">3 · JOIN</text>
+        <text x="345" y="36" text-anchor="middle" font-size="10" fill="#475569">on (img, cid)</text>
+        <text x="345" y="50" text-anchor="middle" font-size="9" fill="#94a3b8">→ bbox attached</text>
+      </g>
+      <line x1="400" y1="30" x2="418" y2="30" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr)"/>
+      <g>
+        <rect x="420" y="0" width="120" height="60" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.2"/>
+        <text x="480" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#065f46">4 · JOIN</text>
+        <text x="480" y="36" text-anchor="middle" font-size="10" fill="#047857">parsed_elements</text>
+        <text x="480" y="50" text-anchor="middle" font-size="9" fill="#0d9488">on (img, page)</text>
+      </g>
+      <line x1="540" y1="30" x2="558" y2="30" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr)"/>
+      <g>
+        <rect x="560" y="0" width="120" height="60" rx="8" fill="#fdf2f8" stroke="#db2777" stroke-width="1.2"/>
+        <text x="620" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#9d174d">5 · IoU</text>
+        <text x="620" y="36" text-anchor="middle" font-size="10" fill="#be185d">filter ≥ τ</text>
+        <text x="620" y="50" text-anchor="middle" font-size="9" fill="#db2777">min(conf)</text>
+      </g>
+      <line x1="680" y1="30" x2="698" y2="30" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr)"/>
+      <g>
+        <rect x="700" y="0" width="110" height="60" rx="8" fill="#0f172a"/>
+        <text x="755" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="white">6 · PIVOT</text>
+        <text x="755" y="36" text-anchor="middle" font-size="10" fill="#cbd5e1">field → cols</text>
+        <text x="755" y="50" text-anchor="middle" font-size="9" fill="#94a3b8">source_conf</text>
+      </g>
+    </g>
+    <g transform="translate(0 130)" font-size="10" fill="#94a3b8">
+      <rect x="10" y="0" width="120" height="2" fill="#7c3aed"/>
+      <rect x="150" y="0" width="120" height="2" fill="#7c3aed"/>
+      <rect x="290" y="0" width="110" height="2" fill="#94a3b8"/>
+      <rect x="420" y="0" width="120" height="2" fill="#0d9488"/>
+      <rect x="560" y="0" width="120" height="2" fill="#db2777"/>
+      <text x="70" y="20" text-anchor="middle">extract-side</text>
+      <text x="210" y="20" text-anchor="middle">extract-side</text>
+      <text x="345" y="20" text-anchor="middle">cite ↔ bbox</text>
+      <text x="480" y="20" text-anchor="middle">parse-side</text>
+      <text x="620" y="20" text-anchor="middle">cross</text>
+      <text x="755" y="20" text-anchor="middle" fill="#475569" font-weight="600">output</text>
+    </g>
+  </g>
+</svg>
+<figcaption>One <code>unionByName</code> per field at step 1. The final pivot delivers one row per <code>image_name</code> with <code>&lt;field&gt;_source_conf</code> columns; left-joined back to <code>field_flagged</code>.</figcaption>
+</figure>
+
+<!-- IoU illustration -->
+<figure>
+<svg viewBox="0 0 820 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="IoU computation">
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <text x="20" y="22" font-size="12" font-weight="600" fill="#475569">IoU geometry · driver-side asserts in §3c</text>
+
+    <!-- Case A: identical -->
+    <g transform="translate(40 50)">
+      <text x="60" y="-4" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">identical → 1.0</text>
+      <rect x="20" y="0" width="80" height="60" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.5"/>
+      <rect x="20" y="0" width="80" height="60" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="60" y="86" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#0f172a">IoU = 1.000</text>
+    </g>
+
+    <!-- Case B: 50% overlap -->
+    <g transform="translate(220 50)">
+      <text x="60" y="-4" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">50% overlap → 1/3</text>
+      <rect x="0" y="0" width="80" height="60" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.5"/>
+      <rect x="40" y="0" width="80" height="60" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <rect x="40" y="0" width="40" height="60" fill="#7c3aed" opacity=".18"/>
+      <text x="60" y="86" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#0f172a">IoU ≈ 0.333</text>
+    </g>
+
+    <!-- Case C: disjoint -->
+    <g transform="translate(420 50)">
+      <text x="80" y="-4" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">disjoint → 0.0</text>
+      <rect x="0" y="0" width="60" height="60" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.5"/>
+      <rect x="100" y="0" width="60" height="60" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="80" y="86" text-anchor="middle" font-family="ui-monospace,monospace" font-size="11" fill="#0f172a">IoU = 0.000</text>
+    </g>
+
+    <!-- Case D: swapped axis -->
+    <g transform="translate(620 50)">
+      <text x="60" y="-4" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">swapped axis → 1.0</text>
+      <rect x="20" y="0" width="80" height="60" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.5"/>
+      <rect x="20" y="0" width="80" height="60" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="60" y="86" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#0f172a">[x1,y1,x0,y0] = [x0,y0,x1,y1]</text>
+    </g>
+
+    <!-- Legend -->
+    <g transform="translate(40 170)">
+      <rect width="14" height="10" fill="#ccfbf1" stroke="#0d9488"/>
+      <text x="22" y="10" font-size="11" fill="#334155">parsed element bbox</text>
+      <rect x="180" width="14" height="10" fill="none" stroke="#7c3aed" stroke-dasharray="4 3"/>
+      <text x="202" y="10" font-size="11" fill="#334155">extract citation bbox</text>
+      <rect x="360" width="14" height="10" fill="#7c3aed" opacity=".18"/>
+      <text x="382" y="10" font-size="11" fill="#334155">intersection</text>
+    </g>
+  </g>
+</svg>
+<figcaption>The IoU UDF asserts run on every notebook execution. They are the contract — if math drifts, the notebook fails loud.</figcaption>
+</figure>
+
+<div class="note"><span class="lbl">Diagnostic</span><code>&lt;field&gt;_citation_unmatched</code> is set when a field has non-empty <code>citation_ids</code> but no parsed element overlaps any cited bbox (<code>source_conf IS NULL</code>). Surfaced for triage; not rolled into <code>review_priority</code> — usually means the extractor hallucinated a region.</div>
+
+<h2 id="calibration"><span class="num">§ 06</span>Calibration-mismatch flags (§3d)</h2>
+<p>Three booleans per (doc, field), only when both <code>extract_conf</code> and <code>source_conf</code> are non-null.</p>
+
+<figure>
+<svg viewBox="0 0 820 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Calibration plane">
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <rect x="100" y="30" width="320" height="280" fill="#fafaf9" stroke="#cbd5e1" stroke-width="1"/>
+    <rect x="100" y="30" width="192" height="42" fill="#fef3c7" opacity=".85"/>
+    <rect x="356" y="170" width="64" height="140" fill="#fce7f3" opacity=".95"/>
+    <rect x="100" y="198" width="192" height="112" fill="#e2e8f0" opacity=".75"/>
+    <line x1="292" y1="30" x2="292" y2="310" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+    <line x1="356" y1="30" x2="356" y2="310" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+    <line x1="100" y1="170" x2="420" y2="170" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+    <line x1="100" y1="72" x2="420" y2="72" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+    <line x1="100" y1="198" x2="420" y2="198" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+    <text x="100" y="328" font-size="11" fill="#94a3b8">0.0</text>
+    <text x="288" y="328" font-size="11" fill="#94a3b8">0.6</text>
+    <text x="352" y="328" font-size="11" fill="#94a3b8">0.8</text>
+    <text x="420" y="328" font-size="11" fill="#94a3b8" text-anchor="end">1.0</text>
+    <text x="260" y="345" font-size="12" fill="#475569" text-anchor="middle">extract_conf →</text>
+    <text x="92" y="316" font-size="11" fill="#94a3b8" text-anchor="end">0.0</text>
+    <text x="92" y="202" font-size="11" fill="#94a3b8" text-anchor="end">0.6</text>
+    <text x="92" y="174" font-size="11" fill="#94a3b8" text-anchor="end">0.5</text>
+    <text x="92" y="76" font-size="11" fill="#94a3b8" text-anchor="end">0.85</text>
+    <text x="92" y="34" font-size="11" fill="#94a3b8" text-anchor="end">1.0</text>
+    <text x="20" y="170" font-size="12" fill="#475569" transform="rotate(-90 20 170)" text-anchor="middle">source_conf ↑</text>
+
+    <text x="196" y="56" text-anchor="middle" font-size="11" font-weight="700" fill="#92400e">model_uncertain_clean_source</text>
+    <text x="388" y="244" text-anchor="middle" font-size="11" font-weight="700" fill="#9d174d">calibration</text>
+    <text x="388" y="258" text-anchor="middle" font-size="11" font-weight="700" fill="#9d174d">_mismatch</text>
+    <text x="196" y="258" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">consistent_low_source</text>
+
+    <g transform="translate(450 40)">
+      <rect width="350" height="280" fill="white" stroke="#e2e8f0" rx="8"/>
+      <text x="18" y="26" font-size="13" font-weight="700" fill="#0f172a">Three flags</text>
+      <g transform="translate(18 50)">
+        <rect width="14" height="14" rx="3" fill="#fce7f3" stroke="#db2777"/>
+        <text x="22" y="11" font-size="12" font-weight="600" fill="#9d174d">calibration_mismatch</text>
+        <text x="0" y="32" font-family="ui-monospace,monospace" font-size="11" fill="#475569">extract &gt; 0.8 AND source &lt; 0.5</text>
+        <text x="0" y="48" font-size="11" fill="#475569" font-style="italic">confident over OCR garbage</text>
+      </g>
+      <g transform="translate(18 122)">
+        <rect width="14" height="14" rx="3" fill="#fef3c7" stroke="#d97706"/>
+        <text x="22" y="11" font-size="12" font-weight="600" fill="#92400e">model_uncertain_clean_source</text>
+        <text x="0" y="32" font-family="ui-monospace,monospace" font-size="11" fill="#475569">extract &lt; 0.6 AND source &gt; 0.85</text>
+        <text x="0" y="48" font-size="11" fill="#475569" font-style="italic">clean OCR, hesitant model</text>
+      </g>
+      <g transform="translate(18 194)">
+        <rect width="14" height="14" rx="3" fill="#e2e8f0" stroke="#64748b"/>
+        <text x="22" y="11" font-size="12" font-weight="600" fill="#334155">consistent_low_source</text>
+        <text x="0" y="32" font-family="ui-monospace,monospace" font-size="11" fill="#475569">extract &lt; 0.6 AND source &lt; 0.6</text>
+        <text x="0" y="48" font-size="11" fill="#475569" font-style="italic">caught by other layers</text>
+      </g>
+    </g>
+  </g>
+</svg>
+<figcaption>The (<code>extract_conf</code>, <code>source_conf</code>) plane. Cells falling outside the three flagged regions land in "OK" territory.</figcaption>
+</figure>
+
+<p>Roll-ups: <code>calibration_mismatch_field_count</code> (0–6) and <code>min_source_conf</code> — single sortable signal per document.</p>
+
+<h2 id="outputs"><span class="num">§ 07</span>Output tables</h2>
+<h3>7.1 <code>deeds_review_flags_xconf</code> (per document)</h3>
+<p>The <code>review_priority</code> formula gains one term:</p>
+<pre><code>review_priority =
+    outlier_low_mean                       (0–1)
+  + outlier_high_variance                  (0–1)
+  + outlier_bad_page                       (0–1)
+  + has_parse_error                        (0–1)
+  + !extraction_shape_ok                   (0–1)
+  + low_conf_field_count                   (0–6)
+  + calibration_mismatch_field_count       (0–6)   ← NEW</code></pre>
+<p>New range 0–17. The per-field cross-confidence columns (<code>&lt;field&gt;_source_conf</code>, three derived booleans, <code>&lt;field&gt;_citation_unmatched</code>) are projected onto the table for cell-level inspection without joining back to the long-format table.</p>
+
+<h3>7.2 <code>deeds_field_review_xconf</code> (per cell)</h3>
+<p>Inclusion rule: row is included if any of <code>&lt;field&gt;_low_extract_conf</code>, the field's shape check failed, or <code>&lt;field&gt;_calibration_mismatch</code> is true.</p>
+<p>Per-row schema gains: <code>source_conf DOUBLE</code>, <code>calibration_mismatch BOOLEAN</code>, <code>model_uncertain_clean_source BOOLEAN</code>, <code>consistent_low_source BOOLEAN</code>, <code>citation_unmatched BOOLEAN</code>. The <code>reasons</code> array can now contain <code>"calibration_mismatch"</code>, <code>"model_uncertain_clean_source"</code>, <code>"consistent_low_source"</code>.</p>
+<p>Display ordering: <code>calibration_mismatch DESC, extract_conf ASC, image_name</code> — confident-over-garbage cells float to the top.</p>
+
+<h2 id="workflow"><span class="num">§ 08</span>Reviewer workflow</h2>
+<ol>
+  <li>Open <code>deeds_review_flags_xconf</code> and sort <code>review_priority DESC</code>. Top documents are highest priority.</li>
+  <li>Inspect <code>min_source_conf</code> and <code>calibration_mismatch_field_count</code> to gauge how much of the priority is cross-confidence-driven.</li>
+  <li>Open <code>deeds_field_review_xconf</code>, filter on <code>image_name</code>. Default sort surfaces <code>calibration_mismatch = TRUE</code> rows first.</li>
+  <li>Use <code>cited_regions[*].coord</code> and <code>page_id</code> to jump to the cited bbox on the source page. Compare model value, OCR'd text, and the actual scan.</li>
+  <li><code>model_uncertain_clean_source</code> cells flag a different remediation path — clean OCR but a hesitant model. Usually a schema or instruction issue, not a parsing one.</li>
+  <li><code>citation_unmatched = TRUE</code> is rare and usually means the extractor cited a region the parser did not produce. Investigate directly.</li>
+</ol>
+
+<h2 id="knobs"><span class="num">§ 09</span>Tunable knobs</h2>
+<table>
+  <thead><tr><th>Knob</th><th>Default</th><th>When to change</th></tr></thead>
+  <tbody>
+    <tr><td><code>IOU_THRESHOLD</code></td><td>0.3</td>
+      <td>Lower (e.g. 0.0 for any-intersection) if cited bboxes are much smaller than parsed elements. Raise toward 0.5 if elements heavily overlap.</td></tr>
+    <tr><td><code>CALIBRATION_MISMATCH_EXTRACT_CONF</code> / <code>_SOURCE_CONF</code></td><td>0.8 / 0.5</td>
+      <td>Tune by inspecting the joint distribution. Defaults catch the worst quadrant.</td></tr>
+    <tr><td><code>MODEL_UNCERTAIN_EXTRACT_CONF</code> / <code>_SOURCE_CONF</code></td><td>0.6 / 0.85</td>
+      <td>Adjust together. Informational unless running a schema-tuning loop.</td></tr>
+    <tr><td><code>CONSISTENT_LOW_CONF</code></td><td>0.6</td>
+      <td>Should match <code>LOW_EXTRACT_CONF_THRESHOLD</code> ± 0.1.</td></tr>
+    <tr><td>Output table suffix <code>_xconf</code></td><td>hardcoded</td>
+      <td>Drop once this notebook replaces the original.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="failures"><span class="num">§ 10</span>Failure modes to watch</h2>
+<ul>
+  <li><b><code>source_conf</code> all null after §3c.</b> The citation VARIANT decode failed or the bbox VARIANT decode failed. §3c prints a sample of each at the top. Most common cause: <code>bbox</code> is in <code>[x, y, w, h]</code> form rather than <code>[x0, y0, x1, y1]</code>. The IoU UDF normalizes axis order but not parameterization — <code>_bbox_to_array</code> needs a third fallback.</li>
+  <li><b>Massive <code>citation_unmatched</code> count.</b> Either IoU threshold is too high or <code>page_id</code> is mismatched. Lower <code>IOU_THRESHOLD</code> to 0.0 as a diagnostic.</li>
+  <li><b><code>calibration_mismatch_field_count</code> always 0.</b> Thresholds too tight, or corpus has no confident-over-garbage cells. Raise <code>CALIBRATION_MISMATCH_SOURCE_CONF</code> to 0.7.</li>
+  <li><b>IoU UDF asserts fail at notebook start.</b> Math regression. Do not modify the unit-test values — fix <code>iou_udf</code> instead. The asserts are the contract.</li>
+</ul>
+
+<h2 id="verification"><span class="num">§ 11</span>Verification</h2>
+<ol>
+  <li>The IoU UDF asserts in §3c run on every execution and must pass.</li>
+  <li>The sample VARIANT print in §3c shows the live structure of <code>citations</code> and <code>bbox</code>. Confirm both decode to non-null arrays of four numbers.</li>
+  <li><b>End-to-end smoke on the 6-doc POC.</b> Expected pattern: clean PDFs get <code>min_source_conf</code> close to 1.0; scanned TIFFs show lower <code>min_source_conf</code>, especially on <code>BookNumberType</code> and <code>PageNumber</code>. At least one cell with non-empty <code>citation_ids</code> should resolve to a non-null <code>source_conf</code>.</li>
+  <li><b>GT-mode cross-check (optional).</b> After running notebook 03, join <code>deeds_extracted_vs_gt</code> to <code>deeds_field_review_xconf</code> on <code>(image_name, field)</code> and check whether <code>calibration_mismatch = TRUE</code> rows skew toward <code>classification IN ('FP', 'FN', 'FP_FN')</code> rather than TP / TN. If yes, the cross-check is meaningful and the threshold defaults are good.</li>
+</ol>
+
+<footer>
+  Related ·
+  <a href="confidence-and-evaluation.html">confidence-and-evaluation.html</a> ·
+  <a href="notebook-03-workflow.html">notebook-03-workflow.html</a> ·
+  <a href="notebook-02-methods.md">notebook-02-methods.md</a> ·
+  <a href="plan-cross-confidence-check.md">plan-cross-confidence-check.md</a>
+</footer>
+</main>
+</body>
+</html>

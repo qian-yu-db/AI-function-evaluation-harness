@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Notebook 03 — evaluate with ground truth · workflow</title>
+<style>
+:root{
+  --text:#0f172a; --text-soft:#475569; --text-mute:#94a3b8;
+  --rule:#e2e8f0; --rule-soft:#eef2f6;
+  --bg:#fafaf9; --surface:#ffffff; --surface-2:#f5f5f4; --code-bg:#f1f5f9;
+  --parse:#0d9488; --parse-bg:#ccfbf1; --parse-tint:#f0fdfa;
+  --extract:#7c3aed; --extract-bg:#ede9fe; --extract-tint:#f5f3ff;
+  --cross:#db2777; --cross-bg:#fce7f3; --cross-tint:#fdf2f8;
+  --warn:#d97706; --warn-bg:#fef3c7; --warn-tint:#fffbeb;
+  --good:#059669; --good-bg:#d1fae5;
+  --err:#dc2626; --err-bg:#fee2e2;
+  --accent:#2563eb; --accent-bg:#dbeafe;
+  --shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.02);
+  --max:880px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{background:var(--bg)}
+body{margin:0; color:var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
+main{max-width:var(--max); margin:0 auto; padding:56px 32px 96px}
+
+.eyebrow{display:inline-block; font-size:11px; font-weight:600;
+  letter-spacing:.08em; text-transform:uppercase;
+  color:var(--good); background:var(--good-bg);
+  padding:4px 10px; border-radius:999px; margin-bottom:14px;}
+h1{font-size:28px; line-height:1.25; font-weight:700; letter-spacing:-.01em; margin:0 0 8px}
+.subtitle{font-size:16px; color:var(--text-soft); margin:0 0 36px; max-width:720px}
+
+h2{font-size:20px; font-weight:600; letter-spacing:-.005em;
+  margin:48px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--rule);}
+h2 .num{display:inline-block; font-size:13px; color:var(--text-mute); font-weight:500;
+  font-variant-numeric:tabular-nums; letter-spacing:.04em; margin-right:10px;}
+h3{font-size:15px; font-weight:600; margin:24px 0 8px}
+p{margin:0 0 12px}
+ul,ol{padding-left:22px; margin:0 0 12px}
+li{margin-bottom:4px}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+
+code{font-family:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
+  font-size:.88em; background:var(--code-bg); padding:1.5px 6px; border-radius:4px; color:#1e293b;}
+pre{background:var(--code-bg); border:1px solid var(--rule-soft); border-left:3px solid var(--accent);
+  padding:14px 16px; overflow-x:auto; font-size:13px; line-height:1.55; border-radius:6px; margin:14px 0 18px;}
+pre code{background:none; padding:0; font-size:inherit; color:var(--text)}
+
+table{border-collapse:separate; border-spacing:0; width:100%; margin:14px 0 22px; font-size:14px;
+  background:var(--surface); border:1px solid var(--rule); border-radius:8px; overflow:hidden}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+th{font-weight:600; background:var(--surface-2); color:var(--text); font-size:13px}
+tbody tr:hover{background:var(--surface-2)}
+
+.card{background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+  padding:18px 20px; box-shadow:var(--shadow); margin:14px 0;}
+.cards{display:grid; gap:14px; margin:16px 0 20px}
+.cards.two{grid-template-columns:1fr 1fr}
+.cards.three{grid-template-columns:1fr 1fr 1fr}
+.cards.four{grid-template-columns:1fr 1fr 1fr 1fr}
+@media (max-width: 720px){.cards.two,.cards.three,.cards.four{grid-template-columns:1fr 1fr}}
+@media (max-width: 520px){.cards.two,.cards.three,.cards.four{grid-template-columns:1fr}}
+.card .label{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  margin-bottom:6px; display:flex; align-items:center; gap:8px;}
+.dot{width:10px; height:10px; border-radius:3px; display:inline-block}
+.dot.parse{background:var(--parse)}.dot.extract{background:var(--extract)}
+.dot.cross{background:var(--cross)}.dot.warn{background:var(--warn)}
+.dot.good{background:var(--good)}.dot.accent{background:var(--accent)}.dot.err{background:var(--err)}
+.card.good{border-top:3px solid var(--good)} .card.good .label{color:var(--good)}
+.card.accent{border-top:3px solid var(--accent)} .card.accent .label{color:var(--accent)}
+.card.warn{border-top:3px solid var(--warn)} .card.warn .label{color:var(--warn)}
+.card.err{border-top:3px solid var(--err)} .card.err .label{color:var(--err)}
+
+.note,.warn-box{border-radius:8px; padding:12px 16px; margin:16px 0; font-size:14px;
+  background:var(--accent-bg); border-left:3px solid var(--accent); color:#1e3a8a;}
+.note .lbl,.warn-box .lbl{font-weight:600; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+  display:block; margin-bottom:2px;}
+.warn-box{background:var(--warn-bg); border-left-color:var(--warn); color:#78350f}
+blockquote{margin:14px 0 16px; padding:12px 18px; border-left:3px solid var(--text-mute);
+  background:var(--surface-2); color:var(--text-soft); font-style:italic; border-radius:0 6px 6px 0;}
+
+.toc{background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+  padding:16px 20px; margin:24px 0 32px; box-shadow:var(--shadow);}
+.toc .label{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--text-mute); margin-bottom:8px}
+.toc ol{margin:0; padding-left:18px; columns:2; column-gap:32px; font-size:14px}
+.toc li{margin-bottom:4px; break-inside:avoid}
+@media (max-width:600px){.toc ol{columns:1}}
+
+figure{margin:20px 0 24px; background:var(--surface);
+  border:1px solid var(--rule); border-radius:10px; padding:20px; box-shadow:var(--shadow);}
+figure svg{display:block; width:100%; height:auto; max-width:100%}
+figcaption{font-size:13px; color:var(--text-mute); margin-top:10px; text-align:center; line-height:1.5;}
+
+footer{margin-top:64px; padding-top:18px; border-top:1px solid var(--rule);
+  font-size:13px; color:var(--text-mute);} footer a{color:var(--text-soft)}
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">Notebook 03 · Evaluate with ground truth · Workflow</div>
+<h1>Per-cell ground-truth evaluation and confidence calibration</h1>
+<p class="subtitle">
+  Compares extraction output to <code>data/GroundTruth.csv</code>. Produces per-field accuracy, precision, recall, F1;
+  per-cell <code>high_conf_wrong</code> flagging; and a binned calibration check on whether <code>extract_conf</code>
+  tracks correctness.
+</p>
+
+<!-- Hero pipeline -->
+<figure>
+<svg viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Notebook 03 pipeline">
+  <defs>
+    <marker id="ar-ink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0f172a"/></marker>
+    <marker id="ar-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker>
+  </defs>
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <!-- inputs -->
+    <rect x="20" y="40" width="160" height="60" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="100" y="64" text-anchor="middle" font-size="12" font-weight="700" fill="#1e3a8a">GroundTruth.csv</text>
+    <text x="100" y="80" text-anchor="middle" font-size="11" fill="#1e40af">column-oriented</text>
+    <text x="100" y="93" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#3730a3">UC Volume</text>
+
+    <rect x="20" y="180" width="160" height="60" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="100" y="204" text-anchor="middle" font-size="12" font-weight="700" fill="#5b21b6">deeds_extracted_flat</text>
+    <text x="100" y="220" text-anchor="middle" font-size="11" fill="#6d28d9">pred · extract_conf · cit</text>
+
+    <!-- pipeline boxes -->
+    <rect x="220" y="40" width="120" height="60" rx="8" fill="white" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="280" y="64" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">normalize +</text>
+    <text x="280" y="80" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">transpose</text>
+    <text x="280" y="94" text-anchor="middle" font-size="10" fill="#475569">deeds_ground_truth</text>
+
+    <rect x="370" y="110" width="120" height="60" rx="8" fill="white" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="430" y="134" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">join + classify</text>
+    <text x="430" y="150" text-anchor="middle" font-size="10" fill="#475569">TP · TN · FP · FN · FP_FN</text>
+
+    <!-- outputs cluster -->
+    <rect x="520" y="20" width="160" height="50" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.2"/>
+    <text x="600" y="42" text-anchor="middle" font-size="11" font-weight="700" fill="#065f46">deeds_extracted_vs_gt</text>
+    <text x="600" y="58" text-anchor="middle" font-size="10" fill="#047857">per-cell · high_conf_wrong</text>
+
+    <rect x="520" y="84" width="160" height="50" rx="8" fill="#f0fdfa" stroke="#0d9488" stroke-width="1.2"/>
+    <text x="600" y="106" text-anchor="middle" font-size="11" font-weight="700" fill="#065f46">deeds_eval_metrics_gt</text>
+    <text x="600" y="122" text-anchor="middle" font-size="10" fill="#047857">acc · prec · recall · F1</text>
+
+    <rect x="520" y="148" width="160" height="50" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.2"/>
+    <text x="600" y="170" text-anchor="middle" font-size="11" font-weight="700" fill="#92400e">deeds_calibration_gt</text>
+    <text x="600" y="186" text-anchor="middle" font-size="10" fill="#a16207">conf bins · accuracy</text>
+
+    <rect x="700" y="84" width="100" height="50" rx="8" fill="#0f172a"/>
+    <text x="750" y="106" text-anchor="middle" font-size="11" font-weight="700" fill="white">MLflow run</text>
+    <text x="750" y="122" text-anchor="middle" font-size="10" fill="#cbd5e1">scorers + metrics</text>
+
+    <!-- arrows -->
+    <path d="M 180 70 L 218 70" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#ar-gray)"/>
+    <path d="M 340 80 Q 360 80 370 130" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#ar-gray)"/>
+    <path d="M 180 210 Q 280 210 370 160" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#ar-gray)"/>
+    <path d="M 490 130 Q 505 130 520 45" stroke="#0f172a" stroke-width="1.5" fill="none" marker-end="url(#ar-ink)"/>
+    <path d="M 490 140 L 520 109" stroke="#0f172a" stroke-width="1.5" fill="none" marker-end="url(#ar-ink)"/>
+    <path d="M 490 150 Q 505 150 520 173" stroke="#0f172a" stroke-width="1.5" fill="none" marker-end="url(#ar-ink)"/>
+    <path d="M 680 109 L 698 109" stroke="#0f172a" stroke-width="1.5" fill="none" marker-end="url(#ar-ink)"/>
+  </g>
+</svg>
+<figcaption>Two inputs in, three tables and an MLflow run out. The join key is a normalized image name; classification is per (doc, field).</figcaption>
+</figure>
+
+<nav class="toc">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#io">Inputs and outputs</a></li>
+    <li><a href="#core">Core methodology</a></li>
+    <li><a href="#rules">Design rules</a></li>
+    <li><a href="#load">Load and join the ground truth</a></li>
+    <li><a href="#compare">Comparators and classification</a></li>
+    <li><a href="#vsgt">deeds_extracted_vs_gt</a></li>
+    <li><a href="#metrics">Per-field corpus metrics</a></li>
+    <li><a href="#mlflow">MLflow scorers and run logging</a></li>
+    <li><a href="#calibration">Confidence calibration check</a></li>
+    <li><a href="#workflow">Reviewer workflow</a></li>
+    <li><a href="#knobs">Tunable knobs</a></li>
+    <li><a href="#failures">Failure modes</a></li>
+  </ol>
+</nav>
+
+<h2 id="purpose"><span class="num">§ 01</span>Purpose</h2>
+<p>Offline evaluation of extraction quality against a human-labeled CSV. Produces per-field accuracy / precision / recall / F1, a per-cell comparison table with the model's confidence attached, and a calibration check on whether <code>extract_conf</code> correlates with correctness. Independent of notebook 02 — both can run after notebook 01 in any order.</p>
+
+<h2 id="io"><span class="num">§ 02</span>Inputs and outputs</h2>
+<div class="cards two">
+  <div class="card accent">
+    <div class="label"><span class="dot accent"></span>Inputs</div>
+    <ul style="margin:6px 0 0; padding-left:18px; font-size:14px; color:var(--text-soft)">
+      <li><code>deeds_extracted_flat</code> — predictions, <code>extract_conf</code>, <code>citation_ids</code>.</li>
+      <li><code>data/GroundTruth.csv</code> in a UC volume — column-oriented (one column per document).</li>
+    </ul>
+  </div>
+  <div class="card good">
+    <div class="label"><span class="dot good"></span>Outputs</div>
+    <ul style="margin:6px 0 0; padding-left:18px; font-size:14px; color:var(--text-soft)">
+      <li><code>deeds_ground_truth</code> — transposed GT, one row per document.</li>
+      <li><code>deeds_extracted_vs_gt</code> — per-cell comparison + <code>high_conf_wrong</code>.</li>
+      <li><code>deeds_eval_metrics_gt</code> — per-field accuracy / precision / recall / F1.</li>
+      <li><code>deeds_calibration_gt</code> — conf-bin counts and accuracy.</li>
+      <li>MLflow run under <code>/Users/q.yu@databricks.com/deeds_poc_eval_gt</code>.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="core"><span class="num">§ 03</span>Core methodology</h2>
+<table>
+  <thead><tr><th>Aspect</th><th>Approach</th></tr></thead>
+  <tbody>
+    <tr><td><b>Comparator</b></td><td>Hybrid: fuzzy (Levenshtein ≥ 0.85) for <code>DocumentTitle</code>; strict equality for IDs and dates after normalization.</td></tr>
+    <tr><td><b>Absence handling</b></td><td>Blank-when-absent counts as a <b>true negative</b>. Five outcomes: TP, TN, FP, FN, FP_FN.</td></tr>
+    <tr><td><b>Architecture</b></td><td>Table-first. Match logic in PySpark / SQL; MLflow scorers are pass-throughs that surface precomputed classifications with informative rationale.</td></tr>
+    <tr><td><b>Calibration</b></td><td>Bins <code>extract_conf</code> into four ranges; per-bin accuracy + monotonicity verdict.</td></tr>
+  </tbody>
+</table>
+
+<!-- Classification matrix -->
+<figure>
+<svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Classification matrix">
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <text x="20" y="22" font-size="12" font-weight="600" fill="#475569">Five classifications per (document, field)</text>
+
+    <!-- Matrix grid: columns = pred (null, equal value, different value); rows = gt (null, value) -->
+    <!-- Header cells -->
+    <text x="200" y="56" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">pred = null</text>
+    <text x="380" y="56" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">pred matches gt</text>
+    <text x="560" y="56" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">pred ≠ gt (non-null)</text>
+
+    <text x="100" y="118" text-anchor="end" font-size="11" font-weight="600" fill="#475569">gt = null</text>
+    <text x="100" y="218" text-anchor="end" font-size="11" font-weight="600" fill="#475569">gt has value</text>
+
+    <!-- Cell: gt null, pred null -> TN (highlighted) -->
+    <rect x="110" y="70" width="180" height="80" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="2"/>
+    <text x="200" y="100" text-anchor="middle" font-size="18" font-weight="700" fill="#065f46">TN</text>
+    <text x="200" y="120" text-anchor="middle" font-size="11" fill="#047857">true negative</text>
+    <text x="200" y="136" text-anchor="middle" font-size="10" font-style="italic" fill="#047857">correct absence</text>
+
+    <!-- Cell: gt null, pred value -> FP -->
+    <rect x="300" y="70" width="160" height="80" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="380" y="100" text-anchor="middle" font-size="18" font-weight="700" fill="#991b1b">FP</text>
+    <text x="380" y="120" text-anchor="middle" font-size="11" fill="#b91c1c">hallucination</text>
+
+    <!-- Cell: gt null, pred different (same as FP, but illustrate as FP) -->
+    <rect x="470" y="70" width="180" height="80" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="560" y="100" text-anchor="middle" font-size="16" font-weight="700" fill="#991b1b">FP</text>
+    <text x="560" y="120" text-anchor="middle" font-size="10" fill="#b91c1c">same as left</text>
+    <text x="560" y="136" text-anchor="middle" font-size="10" fill="#b91c1c">(no gt to disagree with)</text>
+
+    <!-- Cell: gt value, pred null -> FN -->
+    <rect x="110" y="170" width="180" height="80" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="200" y="200" text-anchor="middle" font-size="18" font-weight="700" fill="#991b1b">FN</text>
+    <text x="200" y="220" text-anchor="middle" font-size="11" fill="#b91c1c">miss</text>
+    <text x="200" y="236" text-anchor="middle" font-size="10" font-style="italic" fill="#b91c1c">should have extracted</text>
+
+    <!-- Cell: gt value, pred matches -> TP -->
+    <rect x="300" y="170" width="160" height="80" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="380" y="200" text-anchor="middle" font-size="18" font-weight="700" fill="#065f46">TP</text>
+    <text x="380" y="220" text-anchor="middle" font-size="11" fill="#047857">true positive</text>
+
+    <!-- Cell: gt value, pred different -> FP_FN -->
+    <rect x="470" y="170" width="180" height="80" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="560" y="200" text-anchor="middle" font-size="18" font-weight="700" fill="#92400e">FP_FN</text>
+    <text x="560" y="220" text-anchor="middle" font-size="11" fill="#a16207">wrong value</text>
+    <text x="560" y="236" text-anchor="middle" font-size="10" font-style="italic" fill="#a16207">hallucination + miss</text>
+
+    <!-- Legend -->
+    <g transform="translate(680 70)">
+      <rect width="120" height="180" fill="white" stroke="#e2e8f0" rx="8"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#0f172a">Penalty</text>
+      <g transform="translate(12 38)">
+        <rect width="10" height="10" fill="#d1fae5" stroke="#059669"/>
+        <text x="18" y="9" font-size="11" fill="#334155">correct</text>
+      </g>
+      <g transform="translate(12 58)">
+        <rect width="10" height="10" fill="#fee2e2" stroke="#dc2626"/>
+        <text x="18" y="9" font-size="11" fill="#334155">single penalty</text>
+      </g>
+      <g transform="translate(12 78)">
+        <rect width="10" height="10" fill="#fef3c7" stroke="#d97706"/>
+        <text x="18" y="9" font-size="11" fill="#334155">2× penalty</text>
+      </g>
+      <text x="12" y="120" font-size="10" fill="#475569">FP_FN appears in</text>
+      <text x="12" y="134" font-size="10" fill="#475569">both prec + recall</text>
+      <text x="12" y="148" font-size="10" fill="#475569">denominators.</text>
+      <text x="12" y="166" font-size="10" fill="#475569" font-style="italic">"a wrong answer</text>
+      <text x="12" y="178" font-size="10" fill="#475569" font-style="italic">blocked the right one"</text>
+    </g>
+
+    <text x="200" y="288" text-anchor="middle" font-size="11" fill="#94a3b8">(null, null) is correct — not a missing answer.</text>
+  </g>
+</svg>
+<figcaption>The classification has five outcomes because both-non-null mismatches (<code>FP_FN</code>) count twice — they're simultaneously a hallucination and a miss.</figcaption>
+</figure>
+
+<h2 id="rules"><span class="num">§ 04</span>Design rules</h2>
+<ul>
+  <li><b>Null is a meaningful value.</b> GT records blank when the entity isn't in the document. Both comparator and metrics treat <code>(null, null)</code> as a correct true-negative — not a missing answer.</li>
+  <li><b>Per-field comparators, not one-size-fits-all.</b> Free-form text gets fuzzy; numeric IDs get strict-after-normalization. A single-digit difference in <code>DocumentNumber</code> is a real error and must not be hidden by fuzzy logic.</li>
+  <li><b>Both-non-null mismatches count twice.</b> <code>FP_FN</code> is penalized in both precision and recall denominators (and 2× in F1's denominator). One wrong prediction blocked the right one.</li>
+  <li><b>Table-first.</b> <code>deeds_extracted_vs_gt</code> is a deliverable. Match logic in PySpark / SQL; MLflow scorers carry the same data with informative per-row rationale.</li>
+</ul>
+
+<h2 id="load"><span class="num">§ 05</span>Load and join the ground truth</h2>
+<p><code>pd.read_csv</code> with <code>header=None</code> so rows / columns can be addressed by index. Two normalizers keep the join robust:</p>
+<ul>
+  <li><b><code>_normalize_image_name</code></b> — canonical join key: lowercase, replace runs of <code>[\s:_-]+</code> with <code>_</code>. Resolves CSV / filename mismatches like <code>ARPULA:2023 00023192</code> → <code>arpula_2023_00023192</code> matching <code>ARPULA-2023_00023192.TIF</code>.</li>
+  <li><b><code>_stringify</code></b> — preserves leading zeros (e.g. <code>01161191</code>), treats blanks and NaN as <code>None</code>, and strips trailing <code>.0</code> from pandas-read floats that were really integers.</li>
+</ul>
+<p>Blanks land as null in Delta — never empty strings. Inner join on <code>join_key</code>; the smoke check is row count == number of GT documents.</p>
+
+<h2 id="compare"><span class="num">§ 06</span>Comparators and per-field classification</h2>
+<p>Four normalizers cover all six fields:</p>
+
+<div class="cards four">
+  <div class="card">
+    <div class="label"><span class="dot accent"></span><code>norm_title</code></div>
+    <div style="font-weight:600; font-size:14px">DocumentTitle</div>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-soft)">lowercase · strip non-alphanumeric · collapse whitespace</p>
+    <p style="margin:6px 0 0; font-size:12px; color:var(--text-mute)"><b>+ fuzzy:</b> Levenshtein ≥ 0.85</p>
+  </div>
+  <div class="card">
+    <div class="label"><span class="dot accent"></span><code>norm_type</code></div>
+    <div style="font-weight:600; font-size:14px">BookNumberType</div>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-soft)">trim + uppercase</p>
+  </div>
+  <div class="card">
+    <div class="label"><span class="dot accent"></span><code>norm_digits</code></div>
+    <div style="font-weight:600; font-size:14px">BookNumberParsed<br>PageNumber<br>DocumentNumber</div>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-soft)">digits-only · strip leading zeros (all-zeros → "0")</p>
+  </div>
+  <div class="card">
+    <div class="label"><span class="dot accent"></span><code>norm_date</code></div>
+    <div style="font-weight:600; font-size:14px">RecordingDate</div>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--text-soft)">digits-only</p>
+  </div>
+</div>
+
+<p>Per-field columns added to the joined frame:</p>
+<ul>
+  <li><code>&lt;field&gt;_exact_match</code> — strict equality after normalization.</li>
+  <li><code>&lt;field&gt;_fuzzy_match</code> — same as exact except <code>DocumentTitle</code>, which uses Levenshtein. The raw similarity is stored as <code>DocumentTitle_levenshtein_similarity</code>.</li>
+  <li><code>&lt;field&gt;_classification</code> — categorical TP / TN / FP / FN / FP_FN.</li>
+</ul>
+
+<h2 id="vsgt"><span class="num">§ 07</span><code>deeds_extracted_vs_gt</code> — long-format comparison</h2>
+<p>Pivots from one row per document to one row per <code>(image_name, field)</code>. Each row carries:</p>
+<ul>
+  <li><code>gt_value</code>, <code>pred_value</code>, the match flags, <code>levenshtein_similarity</code> (DocumentTitle only), and <code>classification</code>.</li>
+  <li><code>extract_conf</code>, <code>citation_ids</code>, and <code>cited_regions</code> (JSON-stringified bboxes resolved from the doc's full <code>citations</code> array).</li>
+  <li><code>high_conf_wrong</code> — defined as <code>classification ∈ {FP, FN, FP_FN} AND extract_conf ≥ 0.8</code>. The headline error signal.</li>
+</ul>
+<p>Display ordering: <code>high_conf_wrong DESC</code>, errors before correct, <code>extract_conf DESC</code>. <code>_resolve_citations</code> filters the doc's full <code>citations</code> array to entries whose <code>id</code> is in the cell's <code>citation_ids</code>.</p>
+
+<h2 id="metrics"><span class="num">§ 08</span>Per-field corpus metrics</h2>
+<p>SQL aggregation over the long-format table. Per field:</p>
+<pre><code>accuracy  = (tp + tn) / n
+precision = tp / (tp + fp + fp_fn)
+recall    = tp / (tp + fn + fp_fn)
+f1        = 2*tp / (2*tp + fp + fn + 2*fp_fn)</code></pre>
+<p><code>fp_fn</code> appears in both precision and recall denominators because a both-non-null mismatch is simultaneously a hallucination and a miss.</p>
+
+<h2 id="mlflow"><span class="num">§ 09</span>MLflow scorers and run logging</h2>
+<ul>
+  <li><b><code>_build_expected_facts</code></b> — for each field, generates <code>"&lt;field&gt; is &lt;value&gt;"</code> if GT has a value, or <code>"&lt;field&gt; is not present in the document"</code> if null. The negative statement enables <code>Correctness</code> to evaluate legitimate absences.</li>
+  <li><b><code>_make_field_scorer</code></b> — factory producing per-field pass-through scorers. The match logic was computed in §06; the scorer surfaces the classification with a rich rationale string (<code>"classification=TP; comparator=levenshtein_sim≥0.85 on lowercase+alnum+collapse_ws; gt='THIS DEED', pred='THIS DEED', levenshtein_sim=1.000"</code>).</li>
+  <li><b><code>COMPARATOR_DESCRIPTION</code></b> — small dict labeling each field's comparator and normalization, used in the rationale strings. Single source of truth for the human-readable description.</li>
+</ul>
+<p>Scorers passed to <code>evaluate()</code>: built-in <code>Correctness</code> + six per-field scorers. A second logging step reuses <code>run_id=results.run_id</code> so per-field corpus metrics land alongside the scorer-level metrics. F1 isn't a row-wise mean and must be logged from the SQL aggregation.</p>
+
+<h2 id="calibration"><span class="num">§ 10</span>Confidence calibration check</h2>
+<p>Bins <code>extract_conf</code> into <code>[0, 0.5)</code>, <code>[0.5, 0.8)</code>, <code>[0.8, 0.95)</code>, <code>[0.95, 1.0]</code>. Per bin: count of TP+TN vs FP+FN+FP_FN, accuracy. Null-confidence cells excluded.</p>
+
+<!-- Calibration histogram -->
+<figure>
+<svg viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Calibration histogram">
+  <g font-family="ui-sans-serif,system-ui,sans-serif">
+    <text x="20" y="22" font-size="12" font-weight="600" fill="#475569">Illustrative · monotonic vs non-monotonic accuracy across confidence bins</text>
+
+    <!-- Two panels -->
+    <!-- Panel 1: monotonic (good) -->
+    <g transform="translate(20 50)">
+      <text x="180" y="0" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">Monotonic — extract_conf is meaningful</text>
+      <line x1="40" y1="180" x2="380" y2="180" stroke="#cbd5e1"/>
+      <line x1="40" y1="20" x2="40" y2="180" stroke="#cbd5e1"/>
+      <text x="32" y="180" text-anchor="end" font-size="10" fill="#94a3b8">0%</text>
+      <text x="32" y="100" text-anchor="end" font-size="10" fill="#94a3b8">50%</text>
+      <text x="32" y="24" text-anchor="end" font-size="10" fill="#94a3b8">100%</text>
+
+      <!-- bars -->
+      <rect x="60"  y="118" width="60" height="62"  fill="#10b981" opacity=".85"/>
+      <rect x="140" y="98"  width="60" height="82"  fill="#10b981" opacity=".85"/>
+      <rect x="220" y="60"  width="60" height="120" fill="#10b981" opacity=".95"/>
+      <rect x="300" y="32"  width="60" height="148" fill="#059669"/>
+
+      <text x="90"  y="196" text-anchor="middle" font-size="10" fill="#475569">[0, .5)</text>
+      <text x="170" y="196" text-anchor="middle" font-size="10" fill="#475569">[.5, .8)</text>
+      <text x="250" y="196" text-anchor="middle" font-size="10" fill="#475569">[.8, .95)</text>
+      <text x="330" y="196" text-anchor="middle" font-size="10" fill="#475569">[.95, 1.0]</text>
+
+      <text x="90"  y="113" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#065f46">39%</text>
+      <text x="170" y="93"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#065f46">51%</text>
+      <text x="250" y="55"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#065f46">75%</text>
+      <text x="330" y="27"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#065f46">93%</text>
+
+      <text x="180" y="220" text-anchor="middle" font-size="11" fill="#475569">↑ accuracy as confidence rises → score is calibrated</text>
+    </g>
+
+    <!-- Panel 2: non-monotonic (bad) -->
+    <g transform="translate(420 50)">
+      <text x="180" y="0" text-anchor="middle" font-size="12" font-weight="700" fill="#991b1b">Non-monotonic — extract_conf is unreliable</text>
+      <line x1="40" y1="180" x2="380" y2="180" stroke="#cbd5e1"/>
+      <line x1="40" y1="20" x2="40" y2="180" stroke="#cbd5e1"/>
+
+      <rect x="60"  y="70"  width="60" height="110" fill="#dc2626" opacity=".85"/>
+      <rect x="140" y="80"  width="60" height="100" fill="#dc2626" opacity=".85"/>
+      <rect x="220" y="95"  width="60" height="85"  fill="#dc2626" opacity=".85"/>
+      <rect x="300" y="86"  width="60" height="94"  fill="#dc2626" opacity=".85"/>
+
+      <text x="90"  y="196" text-anchor="middle" font-size="10" fill="#475569">[0, .5)</text>
+      <text x="170" y="196" text-anchor="middle" font-size="10" fill="#475569">[.5, .8)</text>
+      <text x="250" y="196" text-anchor="middle" font-size="10" fill="#475569">[.8, .95)</text>
+      <text x="330" y="196" text-anchor="middle" font-size="10" fill="#475569">[.95, 1.0]</text>
+
+      <text x="90"  y="65"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#991b1b">69%</text>
+      <text x="170" y="75"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#991b1b">62%</text>
+      <text x="250" y="90"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#991b1b">53%</text>
+      <text x="330" y="81"  text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#991b1b">59%</text>
+
+      <text x="180" y="220" text-anchor="middle" font-size="11" fill="#475569">accuracy doesn't track confidence → treat as advisory</text>
+    </g>
+  </g>
+</svg>
+<figcaption>Three outputs: <code>deeds_calibration_gt</code> Delta table, per-bin MLflow metrics, and a printed monotonicity verdict. With ≤36 cells, treat the verdict as a sanity signal — not a calibrated curve.</figcaption>
+</figure>
+
+<div class="warn-box"><span class="lbl">Caution</span>With ≤36 cells, treat the verdict as a sanity signal not a calibrated curve. Watch the trend across batches.</div>
+
+<h2 id="workflow"><span class="num">§ 11</span>Reviewer workflow</h2>
+<ol>
+  <li>Open <code>deeds_eval_metrics_gt</code>. Identify which fields are best and worst by F1.</li>
+  <li>Open <code>deeds_extracted_vs_gt</code>, sort <code>high_conf_wrong DESC</code> then <code>extract_conf DESC</code>. Top rows are the most damaging errors — the model was confident and wrong.</li>
+  <li>For each row, use the <code>cited_regions</code> JSON to jump to the cited bbox / page in the source document. Compare to <code>gt_value</code> and <code>pred_value</code>.</li>
+  <li>Open <code>deeds_calibration_gt</code>. Check the monotonicity verdict. If False, treat <code>extract_conf</code> as advisory only.</li>
+  <li>The MLflow run UI shows scorer metrics, per-field correctness, and calibration metrics in one view — useful for cross-version comparisons when schema or instructions change.</li>
+</ol>
+
+<h2 id="knobs"><span class="num">§ 12</span>Tunable knobs</h2>
+<table>
+  <thead><tr><th>Knob</th><th>Default</th><th>When to change</th></tr></thead>
+  <tbody>
+    <tr><td>Levenshtein threshold for <code>DocumentTitle</code></td><td>0.85</td><td>Tighten (0.9) if false fuzzy-matches appear; loosen (0.75) if OCR drift is heavy.</td></tr>
+    <tr><td><code>HIGH_CONF_THRESHOLD</code></td><td>0.8</td><td>Raise once the calibration check confirms scores are meaningful at higher bins.</td></tr>
+    <tr><td><code>CALIBRATION_BINS</code></td><td>4 bins</td><td>Add bins as the corpus grows.</td></tr>
+    <tr><td><code>JUDGE_MODEL</code> for <code>Correctness</code></td><td><code>databricks-claude-sonnet-4-6</code></td><td>Switch up if the built-in correctness scorer underperforms.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="failures"><span class="num">§ 13</span>Failure modes to watch</h2>
+<ul>
+  <li><b>Inner join produces fewer rows than expected.</b> <code>_normalize_image_name</code> doesn't cover a new naming pattern. Print mismatched keys, extend the regex.</li>
+  <li><b>All <code>FP_FN</code> and no <code>TP</code>.</b> Comparator normalization is too strict. Inspect <code>norm_*</code> outputs on a few examples.</li>
+  <li><b>Calibration verdict says non-monotonic.</b> Confidence is unreliable on this corpus. Raise <code>HIGH_CONF_THRESHOLD</code> and the production review cutoff in notebook 02.</li>
+  <li><b><code>Correctness</code> scorer disagrees with per-field scorers.</b> Judge model is reading the negative <code>expected_facts</code> differently than the strict comparator. Investigate per row; usually the comparator is correct and the judge is lenient.</li>
+</ul>
+
+<footer>
+  Related ·
+  <a href="confidence-and-evaluation.html">confidence-and-evaluation.html</a> ·
+  <a href="notebook-02-cross-conf-workflow.html">notebook-02-cross-conf-workflow.html</a> ·
+  <a href="notebook-03-methods.md">notebook-03-methods.md</a>
+</footer>
+</main>
+</body>
+</html>
